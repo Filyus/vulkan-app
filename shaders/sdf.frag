@@ -169,11 +169,12 @@ void main() {
     // Use aspect ratio from push constants
     float aspectRatio = pushConstants.uAspectRatio;
     
-    // Ray setup with proper aspect ratio
-    vec3 ro = fragWorldPos; // Ray origin
-    vec2 ndc = fragTexCoord * 2.0 - 1.0;
-    ndc.x *= aspectRatio; // Apply aspect ratio correction
-    vec3 rd = normalize(vec3(ndc, 1.0)); // Ray direction
+    // Proper ray setup for SDF rendering with aspect ratio correction
+    vec2 uv = fragTexCoord * 2.0 - 1.0; // Convert to [-1, 1] range
+    uv.x *= aspectRatio; // Apply aspect ratio correction to prevent stretching
+    
+    vec3 ro = vec3(0.0, 0.0, -2.0); // Fixed camera position
+    vec3 rd = normalize(vec3(uv, 1.0)); // Ray direction with aspect ratio correction
     
     // Ray marching
     float maxDist = 10.0;

@@ -187,9 +187,9 @@ impl VulkanPipeline {
         let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
             .attachments(&color_blend_attachments);
         
-        // Push constant range for window data
+        // Push constant range for window data (both vertex and fragment shaders)
         let push_constant_range = vk::PushConstantRange {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
             size: 16, // vec2 + float + float = 4 + 4 + 4 + 4 = 16 bytes
         };
