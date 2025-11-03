@@ -1,49 +1,50 @@
 mod vulkan;
 mod ecs;
+mod error;
+mod config;
+mod debug;
 
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use vulkan::VulkanRenderer;
 use ecs::ECSWorld;
+use error::Result;
+use log::{info, error, debug};
 
-const WINDOW_WIDTH: u32 = 800;
-const WINDOW_HEIGHT: u32 = 600;
 
-fn main() {
-    println!("Vulkan Triangle Demo - ECS");
-    println!("This demo renders a colored triangle using Vulkan with ECS architecture.");
-    println!("");
-
+fn main() -> Result<()> {
+    // Initialize logging first
+    debug::init_logging()?;
+    
+    info!("Starting Vulkan App - ECS");
+    info!("This app renders a colored triangle using Vulkan with ECS architecture.");
+    
     // Initialize event loop
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Vulkan Triangle Demo - ECS")
-        .with_inner_size(winit::dpi::PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+        .with_title(config::window::TITLE)
+        .with_inner_size(winit::dpi::PhysicalSize::new(
+            config::window::DEFAULT_WIDTH,
+            config::window::DEFAULT_HEIGHT
+        ))
+        .with_min_inner_size(winit::dpi::PhysicalSize::new(
+            config::window::MIN_WIDTH,
+            config::window::MIN_HEIGHT
+        ))
         .build(&event_loop)
-        .expect("Failed to create window");
+        .map_err(|e| error::VulkanAppError::Window(
+            error::WindowError::Creation(format!("Failed to create window: {}", e))
+        ))?;
 
     // Initialize Vulkan renderer
-    let vulkan_renderer = match VulkanRenderer::new(&window) {
-        Ok(renderer) => {
-            println!("Vulkan initialized successfully!");
-            println!("Using device: {}", renderer.device.get_device_name(&renderer.instance.instance));
-            renderer
-        }
-        Err(e) => {
-            println!("Vulkan initialization failed: {}", e);
-            println!("This might be due to:");
-            println!("- Missing Vulkan drivers");
-            println!("- Unsupported hardware");
-            println!("- Missing Vulkan SDK");
-            println!("- Shader compilation issues");
-            return;
-        }
-    };
+    let vulkan_renderer = VulkanRenderer::new(&window)?;
+    info!("Vulkan initialized successfully!");
+    info!("Using device: {}", vulkan_renderer.device.get_device_name(&vulkan_renderer.instance.instance));
 
     // Initialize ECS world
-    let mut ecs_world = ECSWorld::new(vulkan_renderer);
-    println!("ECS world initialized successfully!");
+    let mut ecs_world = ECSWorld::new(vulkan_renderer)?;
+    info!("ECS world initialized successfully!");
 
     // Main loop
     event_loop.run(move |event, _, control_flow| {
@@ -54,17 +55,26 @@ fn main() {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
+                info!("Window close requested, exiting");
                 *control_flow = ControlFlow::Exit;
             }
             Event::MainEventsCleared => {
                 // Update ECS systems
-                ecs_world.execute();
+                if let Err(e) = ecs_world.execute() {
+                    error!("Error during ECS execution: {}", e);
+                }
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
                 if let Err(e) = ecs_world.draw_frame() {
-                    println!("Error during draw frame: {}", e);
+                    error!("Error during draw frame: {}", e);
                 }
+            }
+            Event::Resumed => {
+                debug!("Application resumed");
+            }
+            Event::Suspended => {
+                debug!("Application suspended");
             }
             _ => (),
         }

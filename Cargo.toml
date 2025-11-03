@@ -6,7 +6,11 @@ edition = "2021"
 [dependencies]
 winit = "0.28"
 ash = "0.37"
+ash-window = "0.12"
 cgmath = "0.18"
 raw-window-handle = "0.5"
 bytemuck = "1.13"
 legion = "0.4"
+log = "0.4"
+fern = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
