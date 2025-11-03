@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use log::{debug, info, warn, error};
+use log::{debug, info, error};
+#[cfg(debug_assertions)]
+use log::warn;
 use crate::config;
 use crate::error::{Result, AppError, VulkanError};
 
@@ -107,6 +109,8 @@ impl VulkanDebugUtils {
     }
     
     /// Set a debug name for a Vulkan object
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn set_object_name<T>(&mut self, _device: &ash::Device, object: T, name: &str)
     where
         T: ash::vk::Handle + Copy
@@ -185,6 +189,8 @@ impl VulkanDebugUtils {
     }
     
     /// Begin command buffer debugging
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn begin_command_buffer_debug(&self, _command_buffer: ash::vk::CommandBuffer, name: &str) {
         #[cfg(debug_assertions)]
         {
@@ -196,6 +202,8 @@ impl VulkanDebugUtils {
     }
     
     /// End command buffer debugging
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn end_command_buffer_debug(&self, _command_buffer: ash::vk::CommandBuffer, name: &str) {
         #[cfg(debug_assertions)]
         {
@@ -207,6 +215,8 @@ impl VulkanDebugUtils {
     }
     
     /// Begin render pass debugging
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn begin_render_pass_debug(&self, _render_pass: ash::vk::RenderPass, name: &str) {
         #[cfg(debug_assertions)]
         {
@@ -218,6 +228,8 @@ impl VulkanDebugUtils {
     }
     
     /// End render pass debugging
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn end_render_pass_debug(&self, _render_pass: ash::vk::RenderPass, name: &str) {
         #[cfg(debug_assertions)]
         {
@@ -229,6 +241,8 @@ impl VulkanDebugUtils {
     }
     
     /// Log pipeline creation information
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn log_pipeline_creation(&self, _pipeline: ash::vk::Pipeline, name: &str) {
         #[cfg(debug_assertions)]
         {
@@ -240,6 +254,8 @@ impl VulkanDebugUtils {
     }
     
     /// Log shader compilation information
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub fn log_shader_compilation(&self, _shader: ash::vk::ShaderModule, name: &str) {
         #[cfg(debug_assertions)]
         {

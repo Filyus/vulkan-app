@@ -2,10 +2,6 @@
 
 A comprehensive Vulkan application written in Rust featuring Entity Component System (ECS) architecture with Signed Distance Function (SDF) rendering, complete rendering pipeline, and modern Vulkan best practices using the Ash Vulkan bindings.
 
-## Repository
-
-https://github.com/Filyus/vulkan-app.git
-
 ## Features
 
 - **SDF Rendering**: Signed Distance Function rendering instead of traditional mesh geometry
@@ -13,6 +9,7 @@ https://github.com/Filyus/vulkan-app.git
 - **ECS Architecture**: Entity Component System for scalable game/application development
 - **Dynamic Lighting**: Phong lighting model with multiple lights and shadows
 - **Real-time Updates**: Dynamic aspect ratio handling and window resize support
+- **Windowed Fullscreen**: Smooth fullscreen transitions with F11 toggle
 - **Proper Camera System**: Advanced camera module with correct aspect ratio and projection matrix handling
 - **Complete Vulkan Implementation**: Full Vulkan setup with instance, device, swapchain, and rendering pipeline
 - **Modern Error Handling**: Comprehensive error handling with custom `AppError` types
@@ -184,12 +181,6 @@ If you encounter build errors:
 4. **Clean Build**: Try running `cargo clean` and then `cargo build` to force a clean rebuild
 
 If the app fails to run with validation layer errors, it will automatically fall back to running without validation layers.
-
-### Common Issues
-
-- **Render Stretching**: If the scene appears stretched when resizing the window, ensure shaders are compiled with the latest source code
-- **Compilation Errors**: Check that the GLSLC compiler is available in your PATH (included with Vulkan SDK)
-- **Aspect Ratio Issues**: The camera system automatically handles aspect ratio changes, but shader compilation is required for updates to take effect
 
 ## Contributing
 

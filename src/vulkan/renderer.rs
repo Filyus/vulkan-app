@@ -6,7 +6,7 @@ use crate::error::{Result, VulkanError};
 use crate::config;
 use crate::camera::Camera;
 use winit::window::Window;
-use log::{debug, info};
+use log::{debug, info, error};
 
 // Wrapper for surface to handle proper cleanup
 struct SurfaceWrapper {
@@ -469,9 +469,18 @@ impl VulkanRenderer {
         self.time += 0.016; // Approximate 60 FPS
         
         unsafe {
-            // Wait for the previous frame to finish
-            self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, u64::MAX)
-                .map_err(|e| VulkanError::Rendering(format!("Failed to wait for fences: {:?}", e)))?;
+            // Wait for the previous frame to finish with timeout to prevent hanging
+            const FENCE_TIMEOUT_NS: u64 = 1_000_000_000; // 1 second timeout
+            
+            match self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, FENCE_TIMEOUT_NS) {
+                Ok(_) => {
+                    debug!("Fence wait completed successfully");
+                }
+                Err(e) => {
+                    error!("Fence wait timed out or failed: {:?}. This may indicate a GPU hang.", e);
+                    return Err(VulkanError::Rendering(format!("Fence wait failed: {:?}", e)).into());
+                }
+            }
             
             // Acquire an image from the swapchain
             let (image_index, _) = self.swapchain.swapchain_loader.acquire_next_image(
@@ -617,25 +626,45 @@ impl VulkanRenderer {
     pub fn handle_resize(&mut self, new_width: u32, new_height: u32) -> Result<()> {
         info!("Handling window resize to {}x{}", new_width, new_height);
         
-        // Wait for device to be idle before recreation
-        unsafe {
-            self.device.device.device_wait_idle()
-                .map_err(|e| VulkanError::Rendering(format!("Failed to wait for device idle during resize: {:?}", e)))?;
+        // Use safe device wait to prevent hanging
+        match self.device.safe_device_wait_idle() {
+            Ok(_) => {
+                debug!("Device wait idle completed successfully");
+            }
+            Err(e) => {
+                error!("Failed to wait for device idle during resize: {}. Attempting to continue anyway.", e);
+                // Continue with swapchain recreation even if device wait fails
+                // This prevents the application from hanging during fullscreen transitions
+            }
         }
         
-        // Recreate swapchain
-        self.swapchain.recreate(&self.device, &self.instance.instance, &self.instance.entry, self.surface.surface, new_width, new_height)
-            .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to recreate swapchain: {}", e)))?;
+        // Recreate swapchain with error handling
+        match self.swapchain.recreate(&self.device, &self.instance.instance, &self.instance.entry, self.surface.surface, new_width, new_height) {
+            Ok(_) => {
+                debug!("Swapchain recreated successfully");
+            }
+            Err(e) => {
+                error!("Failed to recreate swapchain: {}. Attempting partial recovery.", e);
+                // Try to continue with existing swapchain if recreation fails
+                return Err(VulkanError::SwapchainCreation(format!("Failed to recreate swapchain: {}", e)).into());
+            }
+        }
         
         // Update camera aspect ratio
         let new_aspect_ratio = new_width as f32 / new_height as f32;
         self.camera.set_aspect_ratio(new_aspect_ratio);
         
-        // Recreate framebuffers
-        self.recreate_framebuffers()?;
+        // Recreate framebuffers with error handling
+        if let Err(e) = self.recreate_framebuffers() {
+            error!("Failed to recreate framebuffers: {}. Vulkan state may be inconsistent.", e);
+            return Err(e);
+        }
         
-        // Recreate command buffers
-        self.recreate_command_buffers()?;
+        // Recreate command buffers with error handling
+        if let Err(e) = self.recreate_command_buffers() {
+            error!("Failed to recreate command buffers: {}. Vulkan state may be inconsistent.", e);
+            return Err(e);
+        }
         
         info!("Window resize handled successfully");
         Ok(())

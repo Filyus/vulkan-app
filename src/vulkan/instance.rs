@@ -3,7 +3,9 @@ use ash::{Entry, Instance};
 use std::ffi::CString;
 use crate::error::{Result, VulkanError};
 use crate::config;
-use log::{debug, info, warn};
+use log::{debug, info};
+#[cfg(debug_assertions)]
+use log::warn;
 
 /// Vulkan instance wrapper with proper resource management
 ///
@@ -117,7 +119,9 @@ impl VulkanInstance {
     ///
     /// # Errors
     /// Returns an error if extension enumeration fails
-    fn get_required_extensions(entry: &Entry) -> Result<(Vec<*const i8>, Vec<CString>)> {
+    #[allow(dead_code)]
+    #[allow(unused_variables)]
+    fn get_required_extensions(_entry: &Entry) -> Result<(Vec<*const i8>, Vec<CString>)> {
         let mut extensions = Vec::new();
         let mut extension_strings = Vec::new();
         
@@ -144,7 +148,7 @@ impl VulkanInstance {
         // Add debug utils extension in debug builds
         #[cfg(debug_assertions)]
         if config::vulkan::ENABLE_VALIDATION_LAYERS {
-            if unsafe { entry.enumerate_instance_extension_properties(None) }
+            if unsafe { _entry.enumerate_instance_extension_properties(None) }
                 .map_err(|e| VulkanError::InstanceCreation(format!("Failed to enumerate instance extensions: {:?}", e)))?
                 .iter()
                 .any(|ext| {
