@@ -1,10 +1,20 @@
-# Vulkan App - Simple Rust + Vulkan Window
+# Vulkan App - ECS-Based Vulkan Renderer
 
-This is a minimal Vulkan application written in Rust that demonstrates basic Vulkan initialization and window creation using the Ash Vulkan bindings.
+A comprehensive Vulkan application written in Rust featuring Entity Component System (ECS) architecture, complete rendering pipeline, and modern Vulkan best practices using the Ash Vulkan bindings.
 
 ## Repository
 
 https://github.com/Filyus/vulkan-app.git
+
+## Features
+
+- **Complete Vulkan Implementation**: Full Vulkan setup with instance, device, swapchain, and rendering pipeline
+- **ECS Architecture**: Entity Component System for scalable game/application development
+- **Modern Error Handling**: Comprehensive error handling with custom `AppError` types
+- **Debug Support**: Extensive debugging utilities and validation layer integration
+- **Configuration System**: Centralized configuration for window, Vulkan, rendering, and debug settings
+- **Shader Support**: GLSL vertex and fragment shaders with proper compilation pipeline
+- **Resource Management**: Proper Vulkan resource cleanup and memory management
 
 ## Prerequisites
 
@@ -14,66 +24,130 @@ https://github.com/Filyus/vulkan-app.git
 
 ## Building and Running
 
-1. Clone or download this project
-2. Open a terminal in the project directory
-3. Run the application:
+1. Clone the repository:
+```bash
+git clone https://github.com/Filyus/vulkan-app.git
+cd vulkan-app
+```
 
+2. Build and run the application:
 ```bash
 cargo run
 ```
 
-## What This App Shows
+3. Run tests:
+```bash
+cargo test
+```
 
-- Basic Vulkan instance creation
-- Window creation using winit
-- Validation layer detection and setup (if available)
-- Debug messenger setup for validation layers
-- Proper resource cleanup on exit
-- Basic event loop handling
+## Architecture
 
-## Project Structure
+### Core Components
 
-- `src/main.rs` - Main application code with Vulkan setup and window management
-- `src/ecs/` - Entity Component System implementation
-- `src/vulkan/` - Vulkan rendering components
-- `src/error.rs` - Custom error handling with AppError
-- `src/debug.rs` - Debug utilities and validation
-- `src/config.rs` - Application configuration
-- `shaders/` - GLSL shader source files
-- `Cargo.toml` - Project dependencies and configuration
+- **Main Application** (`src/main.rs`): Application entry point with event loop and window management
+- **ECS System** (`src/ecs/`): Entity Component System with components, systems, and world management
+- **Vulkan Renderer** (`src/vulkan/`): Complete Vulkan implementation including:
+  - Instance and device management
+  - Swapchain creation and management
+  - Graphics pipeline setup
+  - Rendering framework
+- **Error Handling** (`src/error.rs`): Comprehensive error types with `AppError` enum
+- **Debug Utilities** (`src/debug.rs`): Validation layers, debug messaging, and logging
+- **Configuration** (`src/config.rs`): Centralized settings for all application components
+
+### Project Structure
+
+```
+src/
+├── main.rs              # Application entry point
+├── config.rs            # Configuration constants and settings
+├── debug.rs             # Debug utilities and validation
+├── error.rs             # Custom error handling (AppError)
+├── ecs/                 # Entity Component System
+│   ├── mod.rs          # ECS module exports
+│   ├── components.rs   # Entity components
+│   ├── systems.rs      # ECS systems
+│   └── world.rs        # ECS world management
+├── vulkan/              # Vulkan rendering components
+│   ├── mod.rs          # Vulkan module exports
+│   ├── instance.rs     # Vulkan instance management
+│   ├── device.rs       # Vulkan device management
+│   ├── swapchain.rs    # Swapchain handling
+│   ├── pipeline.rs     # Graphics pipeline
+│   └── renderer.rs     # Main renderer
+└── shaders/             # GLSL shader sources
+    ├── triangle.vert    # Vertex shader
+    └── triangle.frag    # Fragment shader
+```
 
 ## Dependencies
 
 - `ash` - Vulkan bindings for Rust
 - `winit` - Window creation and event handling
-- `cgmath` - Math utilities (included for future use)
+- `cgmath` - Math utilities for 3D graphics
 - `raw-window-handle` - Window handle abstraction
+- `bytemuck` - Safe memory casting for vertex data
+- `legion` - Entity Component System framework
+- `log` - Logging framework
+- `fern` - Logging implementation
+- `chrono` - Time utilities for logging
 
-## Notes
+## Configuration
 
-- This is a minimal example focused on simplicity rather than completeness
-- The application creates a window and initializes Vulkan with ECS architecture
-- Validation layers are automatically enabled if available, otherwise the app runs without them
-- This serves as a starting point for more complex Vulkan applications
-- Features custom error handling with AppError type
+The application uses a comprehensive configuration system located in `src/config.rs`:
+
+- **Window Settings**: Default size (800x600), title, minimum dimensions
+- **Vulkan Settings**: API version, validation layers, device extensions
+- **Rendering Settings**: Clear color, culling, rasterization parameters
+- **Debug Settings**: Logging levels, validation, performance monitoring
+- **ECS Settings**: Entity limits, system profiling
+- **Shader Settings**: Shader paths and entry points
+- **Memory Settings**: Buffer alignment and allocation strategies
+
+## Error Handling
+
+The application features robust error handling with the `AppError` enum that covers:
+- Vulkan-specific errors (instance, device, swapchain, pipeline creation)
+- Window-related errors (creation, event handling)
+- ECS errors (world initialization, system execution)
+- I/O errors and generic application errors
+
+## Debug Features
+
+- **Validation Layers**: Automatic enablement in debug builds
+- **Debug Messenger**: Comprehensive Vulkan validation output
+- **Logging**: Structured logging with configurable levels
+- **Performance Monitoring**: Frame time tracking and system profiling
+- **Memory Tracking**: Debug utilities for memory management
+
+## Building for Release
+
+For optimized release builds:
+
+```bash
+cargo build --release
+```
 
 ## Troubleshooting
 
 If you encounter build errors:
 
-1. Make sure the Vulkan SDK is properly installed and the VULKAN_SDK environment variable is set
-2. Ensure you have the Visual Studio Build Tools installed (on Windows)
-3. Try running `cargo clean` and then `cargo build` to force a clean rebuild
+1. **Vulkan SDK**: Ensure the Vulkan SDK is properly installed and the `VULKAN_SDK` environment variable is set
+2. **Build Tools**: Make sure you have the Visual Studio Build Tools installed (on Windows)
+3. **Clean Build**: Try running `cargo clean` and then `cargo build` to force a clean rebuild
 
 If the app fails to run with validation layer errors, it will automatically fall back to running without validation layers.
 
-## Next Steps
+## Contributing
 
-To expand this app, you could:
+This project serves as a foundation for Vulkan applications in Rust. Key areas for contribution:
 
-- Add proper swapchain management for actual rendering to the window
-- Implement graphics pipeline setup with vertex and fragment shaders
-- Add vertex buffers and render a simple triangle
-- Implement proper error handling and resource cleanup
-- Add texture mapping
-- Implement more complex scenes with multiple objects
+- Additional ECS components and systems
+- Advanced rendering techniques (lighting, shadows, post-processing)
+- Performance optimizations
+- Cross-platform improvements
+- Additional debug and profiling tools
+
+## License
+
+This project is open source. See the LICENSE file for details.
