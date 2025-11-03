@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use log::{debug, info, warn, error};
+use crate::config;
 use crate::error::{Result, VulkanAppError, VulkanError};
 
 /// Debug utilities for Vulkan objects
@@ -47,8 +48,8 @@ impl VulkanDebugUtils {
     /// Set up debug messenger for validation layers
     #[cfg(debug_assertions)]
     pub fn setup_debug_messenger(
-        &mut self, 
-        entry: &ash::Entry, 
+        &mut self,
+        entry: &ash::Entry,
         instance: &ash::Instance
     ) -> Result<()> {
         use crate::config::vulkan;
@@ -59,18 +60,26 @@ impl VulkanDebugUtils {
         
         let debug_utils = ash::extensions::ext::DebugUtils::new(entry, instance);
         
+        // Configure message severity based on debug mode settings
+        let mut severity = ash::vk::DebugUtilsMessageSeverityFlagsEXT::ERROR |
+            ash::vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
+        
+        if config::debug::ENABLE_DETAILED_VALIDATION {
+            severity |= ash::vk::DebugUtilsMessageSeverityFlagsEXT::INFO |
+                ash::vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE;
+        }
+        
+        // Configure message types based on debug mode settings
+        let mut message_types = ash::vk::DebugUtilsMessageTypeFlagsEXT::GENERAL |
+            ash::vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION;
+        
+        if config::debug::ENABLE_PERFORMANCE_MONITORING {
+            message_types |= ash::vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
+        }
+        
         let create_info = ash::vk::DebugUtilsMessengerCreateInfoEXT::builder()
-            .message_severity(
-                ash::vk::DebugUtilsMessageSeverityFlagsEXT::ERROR |
-                ash::vk::DebugUtilsMessageSeverityFlagsEXT::WARNING |
-                ash::vk::DebugUtilsMessageSeverityFlagsEXT::INFO |
-                ash::vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
-            )
-            .message_type(
-                ash::vk::DebugUtilsMessageTypeFlagsEXT::GENERAL |
-                ash::vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION |
-                ash::vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
-            )
+            .message_severity(severity)
+            .message_type(message_types)
             .pfn_user_callback(Some(vulkan_debug_callback));
             
         let messenger = unsafe {
@@ -104,12 +113,14 @@ impl VulkanDebugUtils {
     {
         #[cfg(debug_assertions)]
         {
-            
-            // Note: This is a simplified implementation
-            // In a real application, you would need to properly implement object naming
-            let raw_handle = object.as_raw();
-            self.object_names.insert(raw_handle, name.to_string());
-            debug!("Set debug name '{}' for object {:?}", name, raw_handle);
+            if config::debug::ENABLE_OBJECT_NAMING {
+                let raw_handle = object.as_raw();
+                self.object_names.insert(raw_handle, name.to_string());
+                
+                // Note: In a full implementation, you would set the debug name using Vulkan debug utils
+                // For now, we just track the names internally
+                debug!("Set debug name '{}' for object {:?}", name, raw_handle);
+            }
         }
     }
     
@@ -157,12 +168,106 @@ impl VulkanDebugUtils {
     pub fn log_memory_usage(&self, _device: &ash::Device) {
         #[cfg(debug_assertions)]
         {
-            if crate::config::debug::ENABLE_PERFORMANCE_MONITORING {
+            if config::debug::ENABLE_MEMORY_TRACKING {
                 // This is a simplified implementation
                 // In a real application, you would query actual memory usage
                 info!("Memory usage logging (simplified implementation)");
+                
+                // Log object names for debugging
+                if !self.object_names.is_empty() {
+                    debug!("Tracked objects: {}", self.object_names.len());
+                    for (handle, name) in &self.object_names {
+                        debug!("  Object {:?}: {}", handle, name);
+                    }
+                }
             }
         }
+    }
+    
+    /// Begin command buffer debugging
+    pub fn begin_command_buffer_debug(&self, _command_buffer: ash::vk::CommandBuffer, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_COMMAND_BUFFER_DEBUG {
+                debug!("Beginning command buffer: {}", name);
+                // In a full implementation, you would set debug labels
+            }
+        }
+    }
+    
+    /// End command buffer debugging
+    pub fn end_command_buffer_debug(&self, _command_buffer: ash::vk::CommandBuffer, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_COMMAND_BUFFER_DEBUG {
+                debug!("Ending command buffer: {}", name);
+                // In a full implementation, you would end debug labels
+            }
+        }
+    }
+    
+    /// Begin render pass debugging
+    pub fn begin_render_pass_debug(&self, _render_pass: ash::vk::RenderPass, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_RENDER_PASS_DEBUGGING {
+                debug!("Beginning render pass: {}", name);
+                // In a full implementation, you would set debug labels
+            }
+        }
+    }
+    
+    /// End render pass debugging
+    pub fn end_render_pass_debug(&self, _render_pass: ash::vk::RenderPass, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_RENDER_PASS_DEBUGGING {
+                debug!("Ending render pass: {}", name);
+                // In a full implementation, you would end debug labels
+            }
+        }
+    }
+    
+    /// Log pipeline creation information
+    pub fn log_pipeline_creation(&self, _pipeline: ash::vk::Pipeline, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_PIPELINE_DEBUGGING {
+                info!("Created graphics pipeline: {}", name);
+                // In a full implementation, you would log pipeline details
+            }
+        }
+    }
+    
+    /// Log shader compilation information
+    pub fn log_shader_compilation(&self, _shader: ash::vk::ShaderModule, name: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if config::debug::ENABLE_SHADER_DEBUGGING {
+                info!("Compiled shader module: {}", name);
+                // In a full implementation, you would log shader details
+            }
+        }
+    }
+    
+    /// Check if debug mode is enabled
+    pub fn is_debug_mode_enabled() -> bool {
+        config::debug::ENABLE_DEBUG_MODE
+    }
+    
+    /// Get debug mode configuration summary
+    pub fn get_debug_config_summary() -> String {
+        format!(
+            "Debug Mode: {}\nDetailed Validation: {}\nObject Naming: {}\nCommand Buffer Debug: {}\nMemory Tracking: {}\nShader Debugging: {}\nPipeline Debugging: {}\nRender Pass Debugging: {}",
+            config::debug::ENABLE_DEBUG_MODE,
+            config::debug::ENABLE_DETAILED_VALIDATION,
+            config::debug::ENABLE_OBJECT_NAMING,
+            config::debug::ENABLE_COMMAND_BUFFER_DEBUG,
+            config::debug::ENABLE_MEMORY_TRACKING,
+            config::debug::ENABLE_SHADER_DEBUGGING,
+            config::debug::ENABLE_PIPELINE_DEBUGGING,
+            config::debug::ENABLE_RENDER_PASS_DEBUGGING
+        )
     }
     
     /// Validate that a Vulkan operation succeeded
