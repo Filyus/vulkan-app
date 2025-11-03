@@ -39,7 +39,7 @@ fn main() -> Result<()> {
             config::window::MIN_HEIGHT
         ))
         .build(&event_loop)
-        .map_err(|e| error::VulkanAppError::Window(
+        .map_err(|e| error::AppError::Window(
             error::WindowError::Creation(format!("Failed to create window: {}", e))
         ))?;
 

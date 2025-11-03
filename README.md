@@ -1,6 +1,10 @@
-# Vulkan Demo - Simple Rust + Vulkan Window
+# Vulkan App - Simple Rust + Vulkan Window
 
 This is a minimal Vulkan application written in Rust that demonstrates basic Vulkan initialization and window creation using the Ash Vulkan bindings.
+
+## Repository
+
+https://github.com/Filyus/vulkan-app.git
 
 ## Prerequisites
 
@@ -18,7 +22,7 @@ This is a minimal Vulkan application written in Rust that demonstrates basic Vul
 cargo run
 ```
 
-## What This Demo Shows
+## What This App Shows
 
 - Basic Vulkan instance creation
 - Window creation using winit
@@ -30,7 +34,12 @@ cargo run
 ## Project Structure
 
 - `src/main.rs` - Main application code with Vulkan setup and window management
-- `shaders/` - GLSL shader source files (included for future expansion)
+- `src/ecs/` - Entity Component System implementation
+- `src/vulkan/` - Vulkan rendering components
+- `src/error.rs` - Custom error handling with AppError
+- `src/debug.rs` - Debug utilities and validation
+- `src/config.rs` - Application configuration
+- `shaders/` - GLSL shader source files
 - `Cargo.toml` - Project dependencies and configuration
 
 ## Dependencies
@@ -43,9 +52,10 @@ cargo run
 ## Notes
 
 - This is a minimal example focused on simplicity rather than completeness
-- The application creates a window and initializes Vulkan but doesn't render anything yet
+- The application creates a window and initializes Vulkan with ECS architecture
 - Validation layers are automatically enabled if available, otherwise the app runs without them
 - This serves as a starting point for more complex Vulkan applications
+- Features custom error handling with AppError type
 
 ## Troubleshooting
 
@@ -59,7 +69,7 @@ If the app fails to run with validation layer errors, it will automatically fall
 
 ## Next Steps
 
-To expand this demo, you could:
+To expand this app, you could:
 
 - Add proper swapchain management for actual rendering to the window
 - Implement graphics pipeline setup with vertex and fragment shaders

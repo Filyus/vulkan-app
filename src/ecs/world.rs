@@ -1,7 +1,7 @@
 use legion::{Resources, Schedule, World};
 use crate::ecs::systems::{create_triangle_mesh, render_system, transform_update_system};
 use crate::vulkan::renderer::VulkanRenderer;
-use crate::error::{Result, VulkanAppError, EcsError};
+use crate::error::{Result, AppError, EcsError};
 use log::info;
 
 /// ECS World that manages entities, components, and systems
@@ -76,7 +76,7 @@ impl ECSWorld {
             .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
         
         vulkan_renderer.draw_frame()
-            .map_err(|e| VulkanAppError::Vulkan(crate::error::VulkanError::Rendering(
+            .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                 format!("Failed to draw frame: {}", e)
             )))
     }
