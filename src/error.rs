@@ -7,7 +7,7 @@ use std::fmt;
 
 /// Custom error type for the entire application
 #[derive(Debug)]
-pub enum VulkanAppError {
+pub enum AppError {
     /// Vulkan-related errors
     Vulkan(VulkanError),
     
@@ -24,19 +24,19 @@ pub enum VulkanAppError {
     Generic(String),
 }
 
-impl fmt::Display for VulkanAppError {
+impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VulkanAppError::Vulkan(err) => write!(f, "Vulkan error: {}", err),
-            VulkanAppError::Window(err) => write!(f, "Window error: {}", err),
-            VulkanAppError::ECS(err) => write!(f, "ECS error: {}", err),
-            VulkanAppError::IO(err) => write!(f, "IO error: {}", err),
-            VulkanAppError::Generic(msg) => write!(f, "Error: {}", msg),
+            AppError::Vulkan(err) => write!(f, "Vulkan error: {}", err),
+            AppError::Window(err) => write!(f, "Window error: {}", err),
+            AppError::ECS(err) => write!(f, "ECS error: {}", err),
+            AppError::IO(err) => write!(f, "IO error: {}", err),
+            AppError::Generic(msg) => write!(f, "Error: {}", msg),
         }
     }
 }
 
-impl std::error::Error for VulkanAppError {}
+impl std::error::Error for AppError {}
 
 /// Vulkan-specific errors
 #[derive(Debug)]
@@ -153,87 +153,87 @@ impl fmt::Display for EcsError {
 impl std::error::Error for EcsError {}
 
 // Conversion from ash::vk::Result to our custom error type
-impl From<ash::vk::Result> for VulkanAppError {
+impl From<ash::vk::Result> for AppError {
     fn from(result: ash::vk::Result) -> Self {
         match result {
             ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => {
-                VulkanAppError::Vulkan(VulkanError::MemoryAllocation("Out of host memory".to_string()))
+                AppError::Vulkan(VulkanError::MemoryAllocation("Out of host memory".to_string()))
             }
             ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => {
-                VulkanAppError::Vulkan(VulkanError::MemoryAllocation("Out of device memory".to_string()))
+                AppError::Vulkan(VulkanError::MemoryAllocation("Out of device memory".to_string()))
             }
             ash::vk::Result::ERROR_INITIALIZATION_FAILED => {
-                VulkanAppError::Vulkan(VulkanError::InstanceCreation("Initialization failed".to_string()))
+                AppError::Vulkan(VulkanError::InstanceCreation("Initialization failed".to_string()))
             }
             ash::vk::Result::ERROR_DEVICE_LOST => {
-                VulkanAppError::Vulkan(VulkanError::DeviceCreation("Device lost".to_string()))
+                AppError::Vulkan(VulkanError::DeviceCreation("Device lost".to_string()))
             }
             ash::vk::Result::ERROR_SURFACE_LOST_KHR => {
-                VulkanAppError::Vulkan(VulkanError::SurfaceCreation("Surface lost".to_string()))
+                AppError::Vulkan(VulkanError::SurfaceCreation("Surface lost".to_string()))
             }
-            _ => VulkanAppError::Vulkan(VulkanError::Rendering(format!("Vulkan error: {:?}", result))),
+            _ => AppError::Vulkan(VulkanError::Rendering(format!("Vulkan error: {:?}", result))),
         }
     }
 }
 
 // Conversion from std::io::Error to our custom error type
-impl From<std::io::Error> for VulkanAppError {
+impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
-        VulkanAppError::IO(err)
+        AppError::IO(err)
     }
 }
 
 // Conversion from Box<dyn std::error::Error> to our custom error type
-impl From<Box<dyn std::error::Error>> for VulkanAppError {
+impl From<Box<dyn std::error::Error>> for AppError {
     fn from(err: Box<dyn std::error::Error>) -> Self {
-        VulkanAppError::Generic(err.to_string())
+        AppError::Generic(err.to_string())
     }
 }
 
-// Conversion from VulkanError to VulkanDemoError
-impl From<VulkanError> for VulkanAppError {
+// Conversion from VulkanError to AppError
+impl From<VulkanError> for AppError {
     fn from(err: VulkanError) -> Self {
-        VulkanAppError::Vulkan(err)
+        AppError::Vulkan(err)
     }
 }
 
-// Conversion from EcsError to VulkanDemoError
-impl From<EcsError> for VulkanAppError {
+// Conversion from EcsError to AppError
+impl From<EcsError> for AppError {
     fn from(err: EcsError) -> Self {
-        VulkanAppError::ECS(err)
+        AppError::ECS(err)
     }
 }
 
-// Conversion from WindowError to VulkanDemoError
-impl From<WindowError> for VulkanAppError {
+// Conversion from WindowError to AppError
+impl From<WindowError> for AppError {
     fn from(err: WindowError) -> Self {
-        VulkanAppError::Window(err)
+        AppError::Window(err)
     }
 }
 
 /// Result type alias for our application
-pub type Result<T> = std::result::Result<T, VulkanAppError>;
+pub type Result<T> = std::result::Result<T, AppError>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_vulkan_app_error_display() {
+    fn test_app_error_display() {
         let vulkan_err = VulkanError::InstanceCreation("Failed to create instance".to_string());
-        let app_err = VulkanAppError::Vulkan(vulkan_err);
+        let app_err = AppError::Vulkan(vulkan_err);
         
         let display_str = format!("{}", app_err);
         assert_eq!(display_str, "Vulkan error: Instance creation failed: Failed to create instance");
     }
 
     #[test]
-    fn test_vulkan_app_error_from_vk_result() {
+    fn test_app_error_from_vk_result() {
         let result = ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY;
-        let app_err: VulkanAppError = result.into();
+        let app_err: AppError = result.into();
         
         match app_err {
-            VulkanAppError::Vulkan(VulkanError::MemoryAllocation(msg)) => {
+            AppError::Vulkan(VulkanError::MemoryAllocation(msg)) => {
                 assert_eq!(msg, "Out of host memory");
             }
             _ => panic!("Expected MemoryAllocation error"),
@@ -241,24 +241,24 @@ mod tests {
     }
 
     #[test]
-    fn test_vulkan_app_error_from_io_error() {
+    fn test_app_error_from_io_error() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
-        let app_err: VulkanAppError = io_err.into();
+        let app_err: AppError = io_err.into();
         
         match app_err {
-            VulkanAppError::IO(_) => {}, // Expected
+            AppError::IO(_) => {}, // Expected
             _ => panic!("Expected IO error"),
         }
     }
 
     #[test]
-    fn test_vulkan_app_error_from_box_error() {
+    fn test_app_error_from_box_error() {
         let boxed_err: Box<dyn std::error::Error> =
             Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Some error"));
-        let app_err: VulkanAppError = boxed_err.into();
+        let app_err: AppError = boxed_err.into();
         
         match app_err {
-            VulkanAppError::Generic(msg) => {
+            AppError::Generic(msg) => {
                 assert!(msg.contains("Some error"));
             }
             _ => panic!("Expected Generic error"),
@@ -266,12 +266,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vulkan_app_error_from_vulkan_error() {
+    fn test_app_error_from_vulkan_error() {
         let vulkan_err = VulkanError::DeviceCreation("Device creation failed".to_string());
-        let app_err: VulkanAppError = vulkan_err.into();
+        let app_err: AppError = vulkan_err.into();
         
         match app_err {
-            VulkanAppError::Vulkan(VulkanError::DeviceCreation(msg)) => {
+            AppError::Vulkan(VulkanError::DeviceCreation(msg)) => {
                 assert_eq!(msg, "Device creation failed");
             }
             _ => panic!("Expected Vulkan error with DeviceCreation variant"),
@@ -279,12 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vulkan_app_error_from_ecs_error() {
+    fn test_app_error_from_ecs_error() {
         let ecs_err = EcsError::EntityCreation("Failed to create entity".to_string());
-        let app_err: VulkanAppError = ecs_err.into();
+        let app_err: AppError = ecs_err.into();
         
         match app_err {
-            VulkanAppError::ECS(EcsError::EntityCreation(msg)) => {
+            AppError::ECS(EcsError::EntityCreation(msg)) => {
                 assert_eq!(msg, "Failed to create entity");
             }
             _ => panic!("Expected ECS error"),
@@ -292,12 +292,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vulkan_app_error_from_window_error() {
+    fn test_app_error_from_window_error() {
         let window_err = WindowError::Creation("Window creation failed".to_string());
-        let app_err: VulkanAppError = window_err.into();
+        let app_err: AppError = window_err.into();
         
         match app_err {
-            VulkanAppError::Window(WindowError::Creation(msg)) => {
+            AppError::Window(WindowError::Creation(msg)) => {
                 assert_eq!(msg, "Window creation failed");
             }
             _ => panic!("Expected Window error"),
@@ -310,7 +310,7 @@ mod tests {
         let ok_result: Result<String> = Ok("success".to_string());
         assert!(ok_result.is_ok());
         
-        let err_result: Result<String> = Err(VulkanAppError::Generic("error".to_string()));
+        let err_result: Result<String> = Err(AppError::Generic("error".to_string()));
         assert!(err_result.is_err());
     }
 }

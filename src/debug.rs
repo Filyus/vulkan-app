@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use log::{debug, info, warn, error};
 use crate::config;
-use crate::error::{Result, VulkanAppError, VulkanError};
+use crate::error::{Result, AppError, VulkanError};
 
 /// Debug utilities for Vulkan objects
 #[allow(dead_code)] // Fields and methods are for future debugging features
@@ -84,7 +84,7 @@ impl VulkanDebugUtils {
             
         let messenger = unsafe {
             debug_utils.create_debug_utils_messenger(&create_info, None)
-                .map_err(|e| VulkanAppError::Vulkan(
+                .map_err(|e| AppError::Vulkan(
                     VulkanError::Validation(format!("Failed to create debug messenger: {:?}", e))
                 ))?
         };
@@ -274,7 +274,7 @@ impl VulkanDebugUtils {
     pub fn validate_vulkan_result(result: ash::vk::Result, operation: &str) -> Result<()> {
         if result != ash::vk::Result::SUCCESS {
             error!("Vulkan operation '{}' failed with result: {:?}", operation, result);
-            return Err(VulkanAppError::Vulkan(
+            return Err(AppError::Vulkan(
                 VulkanError::Validation(format!("{} failed: {:?}", operation, result))
             ));
         }
@@ -354,7 +354,7 @@ pub fn init_logging() -> Result<()> {
         .level(debug::LOG_LEVEL)
         .chain(std::io::stdout())
         .apply()
-        .map_err(|e| VulkanAppError::Generic(
+        .map_err(|e| AppError::Generic(
             format!("Failed to initialize logging: {}", e)
         ))?;
     
