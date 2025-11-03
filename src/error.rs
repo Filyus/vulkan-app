@@ -211,6 +211,20 @@ impl From<WindowError> for AppError {
     }
 }
 
+// Conversion from winit::error::EventLoopError to AppError
+impl From<winit::error::EventLoopError> for AppError {
+    fn from(err: winit::error::EventLoopError) -> Self {
+        AppError::Window(WindowError::EventLoop(err.to_string()))
+    }
+}
+
+// Conversion from winit::error::OsError to AppError
+impl From<winit::error::OsError> for AppError {
+    fn from(err: winit::error::OsError) -> Self {
+        AppError::Window(WindowError::Creation(err.to_string()))
+    }
+}
+
 /// Result type alias for our application
 pub type Result<T> = std::result::Result<T, AppError>;
 

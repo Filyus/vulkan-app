@@ -73,7 +73,7 @@ impl VulkanInstance {
         let engine_name = CString::new(config::vulkan::ENGINE_NAME)
             .map_err(|e| VulkanError::InstanceCreation(format!("Failed to create engine name string: {}", e)))?;
 
-        let app_info = vk::ApplicationInfo::builder()
+        let app_info = vk::ApplicationInfo::default()
             .application_name(&app_name)
             .application_version(config::vulkan::APP_VERSION)
             .engine_name(&engine_name)
@@ -94,7 +94,7 @@ impl VulkanInstance {
         #[cfg(not(debug_assertions))]
         let (layers, _layer_strings): (Vec<*const i8>, Vec<CString>) = (Vec::new(), Vec::new());
 
-        let create_info = vk::InstanceCreateInfo::builder()
+        let create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&extensions)
             .enabled_layer_names(&layers);
@@ -125,7 +125,7 @@ impl VulkanInstance {
         // We'll use a placeholder for now since we don't have a window handle at instance creation time
         // In a real application, you would get the display handle from the window
         let display_handle = raw_window_handle::RawDisplayHandle::Windows(
-            raw_window_handle::WindowsDisplayHandle::empty()
+            raw_window_handle::WindowsDisplayHandle::new()
         );
         let window_extensions = ash_window::enumerate_required_extensions(display_handle)
             .map_err(|e| VulkanError::InstanceCreation(format!("Failed to enumerate window extensions: {:?}", e)))?;
@@ -144,14 +144,14 @@ impl VulkanInstance {
         // Add debug utils extension in debug builds
         #[cfg(debug_assertions)]
         if config::vulkan::ENABLE_VALIDATION_LAYERS {
-            if entry.enumerate_instance_extension_properties(None)
+            if unsafe { entry.enumerate_instance_extension_properties(None) }
                 .map_err(|e| VulkanError::InstanceCreation(format!("Failed to enumerate instance extensions: {:?}", e)))?
                 .iter()
                 .any(|ext| {
                     let name = unsafe { std::ffi::CStr::from_ptr(ext.extension_name.as_ptr()) };
-                    name.to_str().unwrap() == ash::extensions::ext::DebugUtils::name().to_str().unwrap()
+                    name.to_str().unwrap() == ash::vk::EXT_DEBUG_UTILS_NAME.to_str().unwrap()
                 }) {
-                let debug_utils_name = CString::new(ash::extensions::ext::DebugUtils::name().to_str().unwrap())
+                let debug_utils_name = CString::new(ash::vk::EXT_DEBUG_UTILS_NAME.to_str().unwrap())
                     .map_err(|e| VulkanError::InstanceCreation(format!("Failed to create debug utils string: {}", e)))?;
                 extensions.push(debug_utils_name.as_ptr());
                 extension_strings.push(debug_utils_name);
@@ -182,7 +182,7 @@ impl VulkanInstance {
     /// Returns an error if layer enumeration fails
     #[cfg(debug_assertions)]
     fn get_validation_layers(entry: &Entry) -> Result<(Vec<*const i8>, Vec<CString>)> {
-        let available_layers = entry.enumerate_instance_layer_properties()
+        let available_layers = unsafe { entry.enumerate_instance_layer_properties() }
             .map_err(|e| VulkanError::InstanceCreation(format!("Failed to enumerate instance layers: {:?}", e)))?;
         
         debug!("Available validation layers:");
