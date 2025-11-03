@@ -134,22 +134,48 @@ impl ApplicationHandler for AppState {
         info!("Starting Vulkan App - ECS");
         info!("This app renders SDF shapes using Vulkan with ECS architecture.");
         
+        let window_size = winit::dpi::PhysicalSize::new(
+            config::window::DEFAULT_WIDTH,
+            config::window::DEFAULT_HEIGHT
+        );
+        
+        // Calculate centered position on primary monitor
+        let centered_position = {
+            // Get the primary monitor or fallback to the first available monitor
+            let primary_monitor = event_loop.primary_monitor().or_else(|| {
+                event_loop.available_monitors().next()
+            });
+            
+            if let Some(monitor) = primary_monitor {
+                let monitor_size = monitor.size();
+                let monitor_position = monitor.position();
+                
+                // Calculate centered position
+                let x = monitor_position.x + ((monitor_size.width as i32 - config::window::DEFAULT_WIDTH as i32) / 2);
+                let y = monitor_position.y + ((monitor_size.height as i32 - config::window::DEFAULT_HEIGHT as i32) / 2);
+                
+                winit::dpi::PhysicalPosition::new(x, y)
+            } else {
+                // Fallback to centered position if no monitor info available
+                winit::dpi::PhysicalPosition::new(
+                    (1920 - config::window::DEFAULT_WIDTH as i32) / 2,
+                    (1080 - config::window::DEFAULT_HEIGHT as i32) / 2
+                )
+            }
+        };
+        
         let window_attributes = WindowAttributes::default()
             .with_title(config::window::TITLE)
-            .with_inner_size(winit::dpi::PhysicalSize::new(
-                config::window::DEFAULT_WIDTH,
-                config::window::DEFAULT_HEIGHT
-            ))
+            .with_inner_size(window_size)
             .with_min_inner_size(winit::dpi::PhysicalSize::new(
                 config::window::MIN_WIDTH,
                 config::window::MIN_HEIGHT
-            ));
+            ))
+            .with_position(centered_position);
         
         let window = event_loop.create_window(window_attributes).expect("Failed to create window");
         self.original_window_size = window.inner_size();
-        self.original_window_position = window.outer_position().unwrap_or_else(|_| {
-            winit::dpi::PhysicalPosition::new(100, 100)
-        });
+        self.original_window_position = centered_position;
         
         // Initialize Vulkan renderer
         match VulkanRenderer::new(&window) {
