@@ -95,6 +95,30 @@ pub mod debug {
     /// Enable frame time tracking
     #[allow(dead_code)]
     pub const ENABLE_FRAME_TIME_TRACKING: bool = true;
+    
+    /// Enable debug mode with additional validation
+    pub const ENABLE_DEBUG_MODE: bool = cfg!(debug_assertions);
+    
+    /// Enable detailed Vulkan validation
+    pub const ENABLE_DETAILED_VALIDATION: bool = cfg!(debug_assertions);
+    
+    /// Enable object naming for debugging
+    pub const ENABLE_OBJECT_NAMING: bool = cfg!(debug_assertions);
+    
+    /// Enable command buffer debugging
+    pub const ENABLE_COMMAND_BUFFER_DEBUG: bool = cfg!(debug_assertions);
+    
+    /// Enable memory tracking
+    pub const ENABLE_MEMORY_TRACKING: bool = cfg!(debug_assertions);
+    
+    /// Enable shader debugging
+    pub const ENABLE_SHADER_DEBUGGING: bool = cfg!(debug_assertions);
+    
+    /// Enable pipeline debugging
+    pub const ENABLE_PIPELINE_DEBUGGING: bool = cfg!(debug_assertions);
+    
+    /// Enable render pass debugging
+    pub const ENABLE_RENDER_PASS_DEBUGGING: bool = cfg!(debug_assertions);
 }
 
 /// ECS configuration
@@ -139,4 +163,80 @@ pub mod memory {
     /// Enable memory mapping debugging
     #[allow(dead_code)] // For future memory debugging
     pub const ENABLE_MEMORY_DEBUGGING: bool = false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_window_config_constants() {
+        assert_eq!(window::TITLE, "Vulkan App - ECS");
+        assert_eq!(window::DEFAULT_WIDTH, 800);
+        assert_eq!(window::DEFAULT_HEIGHT, 600);
+        assert_eq!(window::MIN_WIDTH, 400);
+        assert_eq!(window::MIN_HEIGHT, 300);
+    }
+
+    #[test]
+    fn test_vulkan_config_constants() {
+        assert_eq!(vulkan::APP_NAME, "Vulkan App");
+        assert_eq!(vulkan::ENGINE_NAME, "No Engine");
+        assert_eq!(vulkan::MAX_FRAMES_IN_FLIGHT, 2);
+        assert!(!vulkan::VALIDATION_LAYERS.is_empty());
+        assert!(!vulkan::DEVICE_EXTENSIONS.is_empty());
+    }
+
+    #[test]
+    fn test_rendering_config_constants() {
+        assert_eq!(rendering::CLEAR_COLOR, [0.0, 0.0, 0.0, 1.0]);
+        assert!(rendering::ENABLE_FACE_CULLING);
+        assert_eq!(rendering::LINE_WIDTH, 1.0);
+        assert_eq!(rendering::CULL_MODE, ash::vk::CullModeFlags::BACK);
+        assert_eq!(rendering::FRONT_FACE, ash::vk::FrontFace::CLOCKWISE);
+    }
+
+    #[test]
+    fn test_debug_config_constants() {
+        assert!(debug::ENABLE_LOGGING);
+        assert!(debug::ENABLE_VERBOSE_VULKAN_DEBUG);
+        assert!(!debug::ENABLE_PERFORMANCE_MONITORING);
+        assert!(debug::ENABLE_FRAME_TIME_TRACKING);
+        assert_eq!(debug::LOG_LEVEL, log::LevelFilter::Debug);
+    }
+
+    #[test]
+    fn test_ecs_config_constants() {
+        assert_eq!(ecs::MAX_ENTITIES, 1000);
+        assert!(!ecs::ENABLE_ENTITY_TRACKING);
+        assert!(!ecs::ENABLE_SYSTEM_PROFILING);
+    }
+
+    #[test]
+    fn test_shader_config_constants() {
+        assert_eq!(shader::VERTEX_SHADER_PATH, "shaders/triangle.vert");
+        assert_eq!(shader::FRAGMENT_SHADER_PATH, "shaders/triangle.frag");
+        assert_eq!(shader::ENTRY_POINT, b"main\0");
+    }
+
+    #[test]
+    fn test_memory_config_constants() {
+        assert_eq!(memory::BUFFER_ALIGNMENT, 256);
+        assert_eq!(memory::ALLOCATION_CHUNK_SIZE, 64 * 1024 * 1024);
+        assert!(!memory::ENABLE_MEMORY_DEBUGGING);
+    }
+
+    #[test]
+    fn test_vulkan_api_version() {
+        let expected_version = ash::vk::make_api_version(0, 1, 0, 0);
+        assert_eq!(vulkan::API_VERSION, expected_version);
+        assert_eq!(vulkan::APP_VERSION, expected_version);
+        assert_eq!(vulkan::ENGINE_VERSION, expected_version);
+    }
+
+    #[test]
+    fn test_validation_layers_config() {
+        assert_eq!(vulkan::VALIDATION_LAYERS, &["VK_LAYER_KHRONOS_validation"]);
+        assert_eq!(vulkan::DEVICE_EXTENSIONS, &["VK_KHR_swapchain"]);
+    }
 }

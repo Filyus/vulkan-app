@@ -17,6 +17,12 @@ fn main() -> Result<()> {
     // Initialize logging first
     debug::init_logging()?;
     
+    // Log debug mode configuration
+    if debug::VulkanDebugUtils::is_debug_mode_enabled() {
+        info!("Debug mode is enabled");
+        info!("{}", debug::VulkanDebugUtils::get_debug_config_summary());
+    }
+    
     info!("Starting Vulkan App - ECS");
     info!("This app renders a colored triangle using Vulkan with ECS architecture.");
     
