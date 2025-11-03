@@ -26,7 +26,7 @@ pub struct VulkanSwapchain {
     pub swapchain_image_views: Vec<vk::ImageView>,
     
     /// The swapchain loader
-    pub swapchain_loader: ash::extensions::khr::Swapchain,
+    pub swapchain_loader: ash::khr::swapchain::Device,
     
     /// The device reference for cleanup
     pub _device: Device,
@@ -56,7 +56,7 @@ impl VulkanSwapchain {
     ) -> Result<Self> {
         info!("Creating Vulkan swapchain");
         
-        let swapchain_loader = ash::extensions::khr::Swapchain::new(instance, &device.device);
+        let swapchain_loader = ash::khr::swapchain::Device::new(instance, &device.device);
         
         let (swapchain, swapchain_images, swapchain_image_format, swapchain_extent) =
             Self::create_swapchain(
@@ -116,13 +116,13 @@ impl VulkanSwapchain {
         _device: &Device,
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-        swapchain_loader: &ash::extensions::khr::Swapchain,
+        swapchain_loader: &ash::khr::swapchain::Device,
         window: &Window,
         queue_families: &QueueFamilyIndices,
     ) -> Result<(vk::SwapchainKHR, Vec<vk::Image>, vk::Format, vk::Extent2D)> {
         debug!("Creating swapchain");
         
-        let surface_loader_temp = ash::extensions::khr::Surface::new(entry, instance);
+        let surface_loader_temp = ash::khr::surface::Instance::new(entry, instance);
         let surface_capabilities = unsafe {
             surface_loader_temp.get_physical_device_surface_capabilities(physical_device, surface)
                 .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to get surface capabilities: {:?}", e)))?
@@ -188,7 +188,7 @@ impl VulkanSwapchain {
             (vk::SharingMode::EXCLUSIVE, vec![])
         };
         
-        let create_info = vk::SwapchainCreateInfoKHR::builder()
+        let create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface)
             .min_image_count(image_count)
             .image_format(surface_format.format)
@@ -238,7 +238,7 @@ impl VulkanSwapchain {
         let mut image_views = vec![];
         
         for (i, &image) in images.iter().enumerate() {
-            let create_info = vk::ImageViewCreateInfo::builder()
+            let create_info = vk::ImageViewCreateInfo::default()
                 .image(image)
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(format)
@@ -344,14 +344,14 @@ impl VulkanSwapchain {
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
         old_swapchain: vk::SwapchainKHR,
-        swapchain_loader: &ash::extensions::khr::Swapchain,
+        swapchain_loader: &ash::khr::swapchain::Device,
         new_width: u32,
         new_height: u32,
     ) -> Result<(vk::SwapchainKHR, Vec<vk::Image>, vk::Format, vk::Extent2D)> {
         debug!("Creating new swapchain with old swapchain reference");
         
         // Get surface capabilities to determine proper extent
-        let surface_loader_temp = ash::extensions::khr::Surface::new(entry, instance);
+        let surface_loader_temp = ash::khr::surface::Instance::new(entry, instance);
         let surface_capabilities = unsafe {
             surface_loader_temp.get_physical_device_surface_capabilities(physical_device, surface)
                 .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to get surface capabilities during recreate: {:?}", e)))?
@@ -382,7 +382,7 @@ impl VulkanSwapchain {
             image_count
         };
         
-        let create_info = vk::SwapchainCreateInfoKHR::builder()
+        let create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface)
             .old_swapchain(old_swapchain)
             .min_image_count(image_count)

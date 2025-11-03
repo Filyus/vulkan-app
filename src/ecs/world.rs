@@ -100,6 +100,32 @@ impl ECSWorld {
             )))
     }
     
+    /// Handle fullscreen toggle
+    ///
+    /// # Arguments
+    /// * `window` - The window to handle fullscreen for
+    ///
+    /// # Returns
+    /// * Ok(()) if fullscreen toggle was handled successfully
+    /// * Err if fullscreen toggle handling failed
+    pub fn handle_fullscreen_toggle(&mut self, window: &winit::window::Window) -> Result<()> {
+        let mut vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+            .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
+        
+        // Get current window size
+        let physical_size = window.inner_size();
+        let new_width = physical_size.width;
+        let new_height = physical_size.height;
+        
+        info!("Handling fullscreen toggle, new size: {}x{}", new_width, new_height);
+        
+        // Handle the resize which will recreate the swapchain
+        vulkan_renderer.handle_resize(new_width, new_height)
+            .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
+                format!("Failed to handle fullscreen toggle: {}", e)
+            )))
+    }
+    
     /// Get the number of entities in the world
     ///
     /// # Returns

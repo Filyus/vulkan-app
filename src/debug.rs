@@ -17,7 +17,7 @@ pub struct VulkanDebugUtils {
     
     /// Debug messenger callback
     #[cfg(debug_assertions)]
-    debug_messenger: Option<ash::extensions::ext::DebugUtils>,
+    debug_messenger: Option<ash::ext::debug_utils::Instance>,
     
     /// Debug messenger handle
     #[cfg(debug_assertions)]
@@ -58,7 +58,7 @@ impl VulkanDebugUtils {
             return Ok(());
         }
         
-        let debug_utils = ash::extensions::ext::DebugUtils::new(entry, instance);
+        let debug_utils = ash::ext::debug_utils::Instance::new(entry, instance);
         
         // Configure message severity based on debug mode settings
         let mut severity = ash::vk::DebugUtilsMessageSeverityFlagsEXT::ERROR |
@@ -77,7 +77,7 @@ impl VulkanDebugUtils {
             message_types |= ash::vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
         }
         
-        let create_info = ash::vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        let create_info = ash::vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(severity)
             .message_type(message_types)
             .pfn_user_callback(Some(vulkan_debug_callback));

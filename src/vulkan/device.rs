@@ -62,7 +62,7 @@ impl VulkanDevice {
     pub fn new(instance: &Instance, entry: &Entry, surface: vk::SurfaceKHR) -> Result<Self> {
         info!("Creating Vulkan device");
         
-        let surface_loader = ash::extensions::khr::Surface::new(entry, instance);
+        let surface_loader = ash::khr::surface::Instance::new(entry, instance);
         
         let (physical_device, queue_families) = Self::pick_physical_device(instance, entry, &surface_loader, surface)?;
         
@@ -99,7 +99,7 @@ impl VulkanDevice {
     fn pick_physical_device(
         instance: &Instance,
         _entry: &Entry,
-        surface_loader: &ash::extensions::khr::Surface,
+        surface_loader: &ash::khr::surface::Instance,
         surface: vk::SurfaceKHR
     ) -> Result<(vk::PhysicalDevice, QueueFamilyIndices)> {
         debug!("Enumerating physical devices");
@@ -137,7 +137,7 @@ impl VulkanDevice {
     fn find_queue_families(
         instance: &Instance,
         device: vk::PhysicalDevice,
-        surface_loader: &ash::extensions::khr::Surface,
+        surface_loader: &ash::khr::surface::Instance,
         surface: vk::SurfaceKHR
     ) -> QueueFamilyIndices {
         debug!("Finding queue families for physical device");
@@ -198,16 +198,16 @@ impl VulkanDevice {
         
         let mut queue_create_infos = vec![];
         
-        let queue_create_info = vk::DeviceQueueCreateInfo::builder()
+        let queue_create_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(indices.graphics_family.unwrap())
             .queue_priorities(&queue_priorities);
-        queue_create_infos.push(queue_create_info.build());
+        queue_create_infos.push(queue_create_info);
         
         if indices.graphics_family != indices.present_family {
-            let queue_create_info = vk::DeviceQueueCreateInfo::builder()
+            let queue_create_info = vk::DeviceQueueCreateInfo::default()
                 .queue_family_index(indices.present_family.unwrap())
                 .queue_priorities(&queue_priorities);
-            queue_create_infos.push(queue_create_info.build());
+            queue_create_infos.push(queue_create_info);
             debug!("Using separate queues for graphics and presentation");
         } else {
             debug!("Using same queue for graphics and presentation");
@@ -228,7 +228,7 @@ impl VulkanDevice {
         
         debug!("Device extensions: {:?}", config::vulkan::DEVICE_EXTENSIONS);
         
-        let create_info = vk::DeviceCreateInfo::builder()
+        let create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&device_extensions);
         

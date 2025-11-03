@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-winit = "0.28"
-ash = "0.37"
-ash-window = "0.12"
-cgmath = "0.18"
-raw-window-handle = "0.5"
-bytemuck = "1.13"
-legion = "0.4"
-log = "0.4"
-fern = "0.6"
-chrono = { version = "0.4", features = ["serde"] }
+winit = "0.30.12"
+ash = "0.38.0"
+ash-window = "0.13.0"
+cgmath = "0.18.0"
+raw-window-handle = "0.6.2"
+bytemuck = "1.24.0"
+legion = "0.4.0"
+log = "0.4.28"
+fern = "0.7.1"
+chrono = { version = "0.4.42", features = ["serde"] }
 
 [dev-dependencies]
-mockall = "0.11"
+mockall = "0.13.1"

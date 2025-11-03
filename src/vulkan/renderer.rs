@@ -11,7 +11,7 @@ use log::{debug, info};
 // Wrapper for surface to handle proper cleanup
 struct SurfaceWrapper {
     surface: vk::SurfaceKHR,
-    surface_loader: ash::extensions::khr::Surface,
+    surface_loader: ash::khr::surface::Instance,
 }
 
 impl Drop for SurfaceWrapper {
@@ -93,7 +93,7 @@ impl VulkanRenderer {
             .map_err(|e| VulkanError::InstanceCreation(format!("Failed to create Vulkan instance: {}", e)))?;
         
         let surface = Self::create_surface(&instance.entry, &instance.instance, window)?;
-        let surface_loader = ash::extensions::khr::Surface::new(&instance.entry, &instance.instance);
+        let surface_loader = ash::khr::surface::Instance::new(&instance.entry, &instance.instance);
         
         let device = VulkanDevice::new(&instance.instance, &instance.entry, surface)
             .map_err(|e| VulkanError::DeviceCreation(format!("Failed to create Vulkan device: {}", e)))?;
@@ -203,18 +203,20 @@ impl VulkanRenderer {
         instance: &Instance,
         window: &Window
     ) -> Result<vk::SurfaceKHR> {
-        use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+        use raw_window_handle::HasWindowHandle;
         
         debug!("Creating Vulkan surface");
         
-        let handle = window.raw_window_handle();
-        match handle {
-            RawWindowHandle::Win32(handle) => {
-                let win32_create_info = vk::Win32SurfaceCreateInfoKHR::builder()
-                    .hinstance(handle.hinstance)
-                    .hwnd(handle.hwnd as *const std::os::raw::c_void);
+        let handle = window.window_handle()
+            .map_err(|e| VulkanError::SurfaceCreation(format!("Failed to get window handle: {:?}", e)))?;
+        
+        match handle.as_raw() {
+            raw_window_handle::RawWindowHandle::Win32(handle) => {
+                let win32_create_info = vk::Win32SurfaceCreateInfoKHR::default()
+                    .hinstance(handle.hinstance.map(|h| h.get()).unwrap_or(0))
+                    .hwnd(handle.hwnd.get());
                 
-                let surface_loader = ash::extensions::khr::Win32Surface::new(entry, instance);
+                let surface_loader = ash::khr::win32_surface::Instance::new(entry, instance);
                 let surface = unsafe {
                     surface_loader.create_win32_surface(&win32_create_info, None)
                         .map_err(|e| VulkanError::SurfaceCreation(format!("Failed to create Win32 surface: {:?}", e)))?
@@ -253,7 +255,7 @@ impl VulkanRenderer {
         for (i, &image_view) in image_views.iter().enumerate() {
             let attachments = [image_view];
             
-            let framebuffer_info = vk::FramebufferCreateInfo::builder()
+            let framebuffer_info = vk::FramebufferCreateInfo::default()
                 .render_pass(render_pass)
                 .attachments(&attachments)
                 .width(extent.width)
@@ -289,7 +291,7 @@ impl VulkanRenderer {
         debug!("Creating command pool for graphics queue family: {}",
                indices.graphics_family.unwrap());
         
-        let pool_info = vk::CommandPoolCreateInfo::builder()
+        let pool_info = vk::CommandPoolCreateInfo::default()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(indices.graphics_family.unwrap());
         
@@ -328,7 +330,7 @@ impl VulkanRenderer {
     ) -> Result<Vec<vk::CommandBuffer>> {
         debug!("Creating {} command buffers", framebuffers.len());
         
-        let alloc_info = vk::CommandBufferAllocateInfo::builder()
+        let alloc_info = vk::CommandBufferAllocateInfo::default()
             .command_pool(command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(framebuffers.len() as u32);
@@ -341,13 +343,13 @@ impl VulkanRenderer {
         for (i, &command_buffer) in command_buffers.iter().enumerate() {
             debug!("Recording command buffer {}", i);
             
-            let begin_info = vk::CommandBufferBeginInfo::builder();
+            let begin_info = vk::CommandBufferBeginInfo::default();
             unsafe {
                 device.begin_command_buffer(command_buffer, &begin_info)
                     .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer {}: {:?}", i, e)))?;
             }
             
-            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+            let render_pass_begin_info = vk::RenderPassBeginInfo::default()
                 .render_pass(render_pass)
                 .framebuffer(framebuffers[i])
                 .render_area(vk::Rect2D {
@@ -425,8 +427,8 @@ impl VulkanRenderer {
         let mut render_finished_semaphores = vec![];
         let mut in_flight_fences = vec![];
         
-        let semaphore_info = vk::SemaphoreCreateInfo::builder();
-        let fence_info = vk::FenceCreateInfo::builder()
+        let semaphore_info = vk::SemaphoreCreateInfo::default();
+        let fence_info = vk::FenceCreateInfo::default()
             .flags(vk::FenceCreateFlags::SIGNALED);
         
         for i in 0..config::vulkan::MAX_FRAMES_IN_FLIGHT {
@@ -495,11 +497,11 @@ impl VulkanRenderer {
             self.device.device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
                 .map_err(|e| VulkanError::CommandBuffer(format!("Failed to reset command buffer: {:?}", e)))?;
             
-            let begin_info = vk::CommandBufferBeginInfo::builder();
+            let begin_info = vk::CommandBufferBeginInfo::default();
             self.device.device.begin_command_buffer(command_buffer, &begin_info)
                 .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer: {:?}", e)))?;
             
-            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+            let render_pass_begin_info = vk::RenderPassBeginInfo::default()
                 .render_pass(self.pipeline.render_pass)
                 .framebuffer(self.framebuffers[image_index as usize])
                 .render_area(vk::Rect2D {
@@ -556,12 +558,11 @@ impl VulkanRenderer {
             let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
             
             let command_buffers = [command_buffer];
-            let submit_info = vk::SubmitInfo::builder()
+            let submit_info = vk::SubmitInfo::default()
                 .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
                 .command_buffers(&command_buffers)
-                .signal_semaphores(&signal_semaphores)
-                .build();
+                .signal_semaphores(&signal_semaphores);
             
             // Submit the command buffer
             self.device.device.queue_submit(
@@ -574,7 +575,7 @@ impl VulkanRenderer {
             let swapchains = [self.swapchain.swapchain];
             let image_indices = [image_index];
             
-            let present_info = vk::PresentInfoKHR::builder()
+            let present_info = vk::PresentInfoKHR::default()
                 .wait_semaphores(&signal_semaphores)
                 .swapchains(&swapchains)
                 .image_indices(&image_indices);
@@ -696,7 +697,7 @@ impl VulkanRenderer {
     ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
         let buffer_size = (std::mem::size_of::<Vertex>() * vertices.len()) as vk::DeviceSize;
         
-        let buffer_info = vk::BufferCreateInfo::builder()
+        let buffer_info = vk::BufferCreateInfo::default()
             .size(buffer_size)
             .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -705,7 +706,7 @@ impl VulkanRenderer {
         
         let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
         
-        let alloc_info = vk::MemoryAllocateInfo::builder()
+        let alloc_info = vk::MemoryAllocateInfo::default()
             .allocation_size(mem_requirements.size)
             .memory_type_index(Self::find_memory_type(
                 mem_requirements.memory_type_bits,
@@ -728,7 +729,7 @@ impl VulkanRenderer {
     ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
         let buffer_size = (std::mem::size_of::<u32>() * indices.len()) as vk::DeviceSize;
         
-        let buffer_info = vk::BufferCreateInfo::builder()
+        let buffer_info = vk::BufferCreateInfo::default()
             .size(buffer_size)
             .usage(vk::BufferUsageFlags::INDEX_BUFFER)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -737,7 +738,7 @@ impl VulkanRenderer {
         
         let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
         
-        let alloc_info = vk::MemoryAllocateInfo::builder()
+        let alloc_info = vk::MemoryAllocateInfo::default()
             .allocation_size(mem_requirements.size)
             .memory_type_index(Self::find_memory_type(
                 mem_requirements.memory_type_bits,
