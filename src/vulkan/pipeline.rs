@@ -1,18 +1,50 @@
 use ash::vk;
 use ash::Device;
 use std::ffi::CStr;
+use crate::error::{Result, VulkanError};
+use crate::config;
+use log::{debug, info};
 
+/// Vulkan pipeline wrapper with proper resource management
+///
+/// This struct manages the Vulkan render pass, pipeline layout, and graphics pipeline,
+/// ensuring proper cleanup and providing debugging capabilities.
 pub struct VulkanPipeline {
+    /// The render pass
     pub render_pass: vk::RenderPass,
+    
+    /// The pipeline layout
     pub pipeline_layout: vk::PipelineLayout,
+    
+    /// The graphics pipeline
     pub graphics_pipeline: vk::Pipeline,
-    pub device: Device, // Add device reference for cleanup
+    
+    /// The device reference for cleanup
+    pub device: Device,
 }
 
 impl VulkanPipeline {
-    pub fn new(device: &Device, swapchain_format: vk::Format) -> Result<Self, Box<dyn std::error::Error>> {
+    /// Create a new Vulkan pipeline
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `swapchain_format` - The swapchain image format
+    ///
+    /// # Returns
+    /// A new VulkanPipeline instance
+    ///
+    /// # Errors
+    /// Returns an error if pipeline creation fails
+    pub fn new(device: &Device, swapchain_format: vk::Format) -> Result<Self> {
+        info!("Creating Vulkan pipeline");
+        
         let render_pass = Self::create_render_pass(device, swapchain_format)?;
+        debug!("Render pass created successfully");
+        
         let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(device, render_pass)?;
+        debug!("Graphics pipeline created successfully");
+        
+        info!("Vulkan pipeline created successfully");
         
         Ok(Self {
             render_pass,
@@ -22,7 +54,20 @@ impl VulkanPipeline {
         })
     }
     
-    fn create_render_pass(device: &Device, format: vk::Format) -> Result<vk::RenderPass, Box<dyn std::error::Error>> {
+    /// Create a render pass
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `format` - The swapchain image format
+    ///
+    /// # Returns
+    /// The created render pass
+    ///
+    /// # Errors
+    /// Returns an error if render pass creation fails
+    fn create_render_pass(device: &Device, format: vk::Format) -> Result<vk::RenderPass> {
+        debug!("Creating render pass with format: {:?}", format);
+        
         let color_attachment = vk::AttachmentDescription::builder()
             .format(format)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -50,21 +95,44 @@ impl VulkanPipeline {
             .attachments(&attachments)
             .subpasses(&subpasses);
         
-        let render_pass = unsafe { device.create_render_pass(&render_pass_info, None)? };
+        let render_pass = unsafe {
+            device.create_render_pass(&render_pass_info, None)
+                .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create render pass: {:?}", e)))?
+        };
+        
+        debug!("Render pass created successfully");
         Ok(render_pass)
     }
     
+    /// Create a graphics pipeline
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `render_pass` - The render pass
+    ///
+    /// # Returns
+    /// A tuple of (pipeline_layout, graphics_pipeline)
+    ///
+    /// # Errors
+    /// Returns an error if pipeline creation fails
     fn create_graphics_pipeline(
-        device: &Device, 
+        device: &Device,
         render_pass: vk::RenderPass
-    ) -> Result<(vk::PipelineLayout, vk::Pipeline), Box<dyn std::error::Error>> {
+    ) -> Result<(vk::PipelineLayout, vk::Pipeline)> {
+        debug!("Creating graphics pipeline");
+        
         // Load shaders
         let vert_shader_code = include_bytes!("../../shaders/triangle.vert.spv");
         let frag_shader_code = include_bytes!("../../shaders/triangle.frag.spv");
         
         if vert_shader_code.is_empty() || frag_shader_code.is_empty() {
-            return Err("Shader files are empty. Please compile GLSL shaders to SPIR-V using glslc.".into());
+            return Err(VulkanError::ShaderCompilation(
+                "Shader files are empty. Please compile GLSL shaders to SPIR-V using glslc.".to_string()
+            ).into());
         }
+        
+        debug!("Loading vertex shader ({} bytes)", vert_shader_code.len());
+        debug!("Loading fragment shader ({} bytes)", frag_shader_code.len());
         
         let vert_shader_module = Self::create_shader_module(device, vert_shader_code)?;
         let frag_shader_module = Self::create_shader_module(device, frag_shader_code)?;
@@ -72,12 +140,12 @@ impl VulkanPipeline {
         let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
             .stage(vk::ShaderStageFlags::VERTEX)
             .module(vert_shader_module)
-            .name(unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") });
+            .name(unsafe { CStr::from_bytes_with_nul_unchecked(config::shader::ENTRY_POINT) });
         
         let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(frag_shader_module)
-            .name(unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") });
+            .name(unsafe { CStr::from_bytes_with_nul_unchecked(config::shader::ENTRY_POINT) });
         
         let shader_stages = [vert_stage.build(), frag_stage.build()];
         
@@ -93,8 +161,8 @@ impl VulkanPipeline {
         let viewport = vk::Viewport {
             x: 0.0,
             y: 0.0,
-            width: 800.0,
-            height: 600.0,
+            width: config::window::DEFAULT_WIDTH as f32,
+            height: config::window::DEFAULT_HEIGHT as f32,
             min_depth: 0.0,
             max_depth: 1.0,
         };
@@ -102,8 +170,8 @@ impl VulkanPipeline {
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: vk::Extent2D {
-                width: 800,
-                height: 600,
+                width: config::window::DEFAULT_WIDTH,
+                height: config::window::DEFAULT_HEIGHT,
             },
         };
         
@@ -118,9 +186,9 @@ impl VulkanPipeline {
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
-            .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .line_width(config::rendering::LINE_WIDTH)
+            .cull_mode(if config::rendering::ENABLE_FACE_CULLING { config::rendering::CULL_MODE } else { vk::CullModeFlags::NONE })
+            .front_face(config::rendering::FRONT_FACE)
             .depth_bias_enable(false);
         
         // Multisampling
@@ -140,7 +208,10 @@ impl VulkanPipeline {
         
         // Pipeline layout
         let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder();
-        let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_info, None)? };
+        let pipeline_layout = unsafe {
+            device.create_pipeline_layout(&pipeline_layout_info, None)
+                .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create pipeline layout: {:?}", e)))?
+        };
         
         // Graphics pipeline
         let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
@@ -159,7 +230,9 @@ impl VulkanPipeline {
             let result = device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info.build()], None);
             match result {
                 Ok(pipelines) => pipelines[0],
-                Err((_, result)) => return Err(format!("Failed to create graphics pipeline: {:?}", result).into()),
+                Err((_, result)) => return Err(VulkanError::PipelineCreation(
+                    format!("Failed to create graphics pipeline: {:?}", result)
+                ).into()),
             }
         };
         
@@ -169,10 +242,22 @@ impl VulkanPipeline {
             device.destroy_shader_module(frag_shader_module, None);
         }
         
+        debug!("Graphics pipeline created successfully");
         Ok((pipeline_layout, graphics_pipeline))
     }
     
-    fn create_shader_module(device: &Device, code: &[u8]) -> Result<vk::ShaderModule, Box<dyn std::error::Error>> {
+    /// Create a shader module from SPIR-V code
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `code` - The SPIR-V shader code
+    ///
+    /// # Returns
+    /// The created shader module
+    ///
+    /// # Errors
+    /// Returns an error if shader module creation fails
+    fn create_shader_module(device: &Device, code: &[u8]) -> Result<vk::ShaderModule> {
         let create_info = vk::ShaderModuleCreateInfo {
             s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
             p_next: std::ptr::null(),
@@ -181,17 +266,24 @@ impl VulkanPipeline {
             p_code: code.as_ptr() as *const u32,
         };
         
-        let shader_module = unsafe { device.create_shader_module(&create_info, None)? };
+        let shader_module = unsafe {
+            device.create_shader_module(&create_info, None)
+                .map_err(|e| VulkanError::ShaderCompilation(format!("Failed to create shader module: {:?}", e)))?
+        };
+        
+        debug!("Shader module created successfully");
         Ok(shader_module)
     }
 }
 
 impl Drop for VulkanPipeline {
     fn drop(&mut self) {
+        debug!("Destroying Vulkan pipeline");
         unsafe {
             self.device.destroy_pipeline(self.graphics_pipeline, None);
             self.device.destroy_pipeline_layout(self.pipeline_layout, None);
             self.device.destroy_render_pass(self.render_pass, None);
         }
+        debug!("Vulkan pipeline destroyed");
     }
 }

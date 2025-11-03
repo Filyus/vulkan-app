@@ -2,9 +2,10 @@ use ash::vk;
 use ash::{Device, Instance};
 use crate::vulkan::{VulkanInstance, VulkanDevice, VulkanSwapchain, VulkanPipeline};
 use crate::ecs::components::Vertex;
+use crate::error::{Result, VulkanError};
+use crate::config;
 use winit::window::Window;
-
-const MAX_FRAMES_IN_FLIGHT: usize = 2;
+use log::{debug, info};
 
 // Wrapper for surface to handle proper cleanup
 struct SurfaceWrapper {
@@ -66,35 +67,52 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(window: &Window) -> Result<Self, Box<dyn std::error::Error>> {
-        let instance = VulkanInstance::new()?;
+    /// Create a new Vulkan renderer
+    ///
+    /// # Arguments
+    /// * `window` - The window to render to
+    ///
+    /// # Returns
+    /// A new VulkanRenderer instance
+    ///
+    /// # Errors
+    /// Returns an error if renderer initialization fails
+    pub fn new(window: &Window) -> Result<Self> {
+        info!("Initializing Vulkan renderer");
+        
+        let instance = VulkanInstance::new()
+            .map_err(|e| VulkanError::InstanceCreation(format!("Failed to create Vulkan instance: {}", e)))?;
+        
         let surface = Self::create_surface(&instance.entry, &instance.instance, window)?;
         let surface_loader = ash::extensions::khr::Surface::new(&instance.entry, &instance.instance);
         
-        let device = VulkanDevice::new(&instance.instance, &instance.entry, surface)?;
+        let device = VulkanDevice::new(&instance.instance, &instance.entry, surface)
+            .map_err(|e| VulkanError::DeviceCreation(format!("Failed to create Vulkan device: {}", e)))?;
         
-        let swapchain = VulkanSwapchain::new(&instance.instance, &instance.entry, &device, surface, window)?;
+        let swapchain = VulkanSwapchain::new(&instance.instance, &instance.entry, &device, surface, window)
+            .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to create swapchain: {}", e)))?;
         
-        let pipeline = VulkanPipeline::new(&device.device, swapchain.swapchain_image_format)?;
+        let pipeline = VulkanPipeline::new(&device.device, swapchain.swapchain_image_format)
+            .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create pipeline: {}", e)))?;
         
         let framebuffers = Self::create_framebuffers(
-            &device.device, 
-            pipeline.render_pass, 
-            &swapchain.swapchain_image_views, 
+            &device.device,
+            pipeline.render_pass,
+            &swapchain.swapchain_image_views,
             swapchain.swapchain_extent
         )?;
         
         let command_pool = Self::create_command_pool(&device.device, &device.queue_families)?;
         let command_buffers = Self::create_command_buffers(
-            &device.device, 
-            command_pool, 
-            pipeline.graphics_pipeline, 
-            pipeline.render_pass, 
-            &framebuffers, 
+            &device.device,
+            command_pool,
+            pipeline.graphics_pipeline,
+            pipeline.render_pass,
+            &framebuffers,
             swapchain.swapchain_extent
         )?;
         
-        let (image_available_semaphores, render_finished_semaphores, in_flight_fences) = 
+        let (image_available_semaphores, render_finished_semaphores, in_flight_fences) =
             Self::create_sync_objects(&device.device)?;
         
         // Create default triangle vertices for initial setup
@@ -120,6 +138,8 @@ impl VulkanRenderer {
         let index_buffer = vk::Buffer::null();
         let index_buffer_memory = vk::DeviceMemory::null();
         
+        info!("Vulkan renderer initialized successfully");
+        
         Ok(Self {
             vertices: default_vertices,
             indices: default_indices,
@@ -142,12 +162,26 @@ impl VulkanRenderer {
         })
     }
     
+    /// Create a Vulkan surface for the given window
+    ///
+    /// # Arguments
+    /// * `entry` - The Vulkan entry point
+    /// * `instance` - The Vulkan instance
+    /// * `window` - The window to create a surface for
+    ///
+    /// # Returns
+    /// The created Vulkan surface
+    ///
+    /// # Errors
+    /// Returns an error if surface creation fails
     fn create_surface(
-        entry: &ash::Entry, 
-        instance: &Instance, 
+        entry: &ash::Entry,
+        instance: &Instance,
         window: &Window
-    ) -> Result<vk::SurfaceKHR, Box<dyn std::error::Error>> {
+    ) -> Result<vk::SurfaceKHR> {
         use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+        
+        debug!("Creating Vulkan surface");
         
         let handle = window.raw_window_handle();
         match handle {
@@ -158,23 +192,41 @@ impl VulkanRenderer {
                 
                 let surface_loader = ash::extensions::khr::Win32Surface::new(entry, instance);
                 let surface = unsafe {
-                    surface_loader.create_win32_surface(&win32_create_info, None)?
+                    surface_loader.create_win32_surface(&win32_create_info, None)
+                        .map_err(|e| VulkanError::SurfaceCreation(format!("Failed to create Win32 surface: {:?}", e)))?
                 };
+                
+                debug!("Vulkan surface created successfully");
                 Ok(surface)
             }
-            _ => Err("Unsupported window handle type".into()),
+            _ => Err(VulkanError::SurfaceCreation("Unsupported window handle type".to_string()).into()),
         }
     }
     
+    /// Create framebuffers for the swapchain images
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `render_pass` - The render pass
+    /// * `image_views` - The swapchain image views
+    /// * `extent` - The extent of the framebuffers
+    ///
+    /// # Returns
+    /// A vector of created framebuffers
+    ///
+    /// # Errors
+    /// Returns an error if framebuffer creation fails
     fn create_framebuffers(
-        device: &Device, 
-        render_pass: vk::RenderPass, 
-        image_views: &[vk::ImageView], 
+        device: &Device,
+        render_pass: vk::RenderPass,
+        image_views: &[vk::ImageView],
         extent: vk::Extent2D
-    ) -> Result<Vec<vk::Framebuffer>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<vk::Framebuffer>> {
+        debug!("Creating {} framebuffers", image_views.len());
+        
         let mut framebuffers = vec![];
         
-        for &image_view in image_views {
+        for (i, &image_view) in image_views.iter().enumerate() {
             let attachments = [image_view];
             
             let framebuffer_info = vk::FramebufferCreateInfo::builder()
@@ -184,25 +236,63 @@ impl VulkanRenderer {
                 .height(extent.height)
                 .layers(1);
             
-            let framebuffer = unsafe { device.create_framebuffer(&framebuffer_info, None)? };
+            let framebuffer = unsafe {
+                device.create_framebuffer(&framebuffer_info, None)
+                    .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create framebuffer {}: {:?}", i, e)))?
+            };
             framebuffers.push(framebuffer);
         }
         
+        debug!("Created {} framebuffers successfully", framebuffers.len());
         Ok(framebuffers)
     }
     
+    /// Create a command pool for command buffer allocation
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `indices` - The queue family indices
+    ///
+    /// # Returns
+    /// The created command pool
+    ///
+    /// # Errors
+    /// Returns an error if command pool creation fails
     fn create_command_pool(
-        device: &Device, 
+        device: &Device,
         indices: &crate::vulkan::device::QueueFamilyIndices
-    ) -> Result<vk::CommandPool, Box<dyn std::error::Error>> {
+    ) -> Result<vk::CommandPool> {
+        debug!("Creating command pool for graphics queue family: {}",
+               indices.graphics_family.unwrap());
+        
         let pool_info = vk::CommandPoolCreateInfo::builder()
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(indices.graphics_family.unwrap());
         
-        let command_pool = unsafe { device.create_command_pool(&pool_info, None)? };
+        let command_pool = unsafe {
+            device.create_command_pool(&pool_info, None)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to create command pool: {:?}", e)))?
+        };
+        
+        debug!("Command pool created successfully");
         Ok(command_pool)
     }
     
+    /// Create command buffers for rendering
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `command_pool` - The command pool to allocate from
+    /// * `graphics_pipeline` - The graphics pipeline to bind
+    /// * `render_pass` - The render pass to use
+    /// * `framebuffers` - The framebuffers to render to
+    /// * `extent` - The render extent
+    ///
+    /// # Returns
+    /// A vector of created command buffers
+    ///
+    /// # Errors
+    /// Returns an error if command buffer creation or recording fails
     fn create_command_buffers(
         device: &Device,
         command_pool: vk::CommandPool,
@@ -210,18 +300,26 @@ impl VulkanRenderer {
         render_pass: vk::RenderPass,
         framebuffers: &[vk::Framebuffer],
         extent: vk::Extent2D,
-    ) -> Result<Vec<vk::CommandBuffer>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<vk::CommandBuffer>> {
+        debug!("Creating {} command buffers", framebuffers.len());
+        
         let alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(framebuffers.len() as u32);
         
-        let command_buffers = unsafe { device.allocate_command_buffers(&alloc_info)? };
+        let command_buffers = unsafe {
+            device.allocate_command_buffers(&alloc_info)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to allocate command buffers: {:?}", e)))?
+        };
         
         for (i, &command_buffer) in command_buffers.iter().enumerate() {
+            debug!("Recording command buffer {}", i);
+            
             let begin_info = vk::CommandBufferBeginInfo::builder();
             unsafe {
-                device.begin_command_buffer(command_buffer, &begin_info)?;
+                device.begin_command_buffer(command_buffer, &begin_info)
+                    .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer {}: {:?}", i, e)))?;
             }
             
             let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
@@ -233,7 +331,7 @@ impl VulkanRenderer {
                 })
                 .clear_values(&[vk::ClearValue {
                     color: vk::ClearColorValue {
-                        float32: [0.0, 0.0, 0.0, 1.0],
+                        float32: config::rendering::CLEAR_COLOR,
                     },
                 }]);
             
@@ -242,14 +340,28 @@ impl VulkanRenderer {
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, graphics_pipeline);
                 device.cmd_draw(command_buffer, 3, 1, 0, 0);
                 device.cmd_end_render_pass(command_buffer);
-                device.end_command_buffer(command_buffer)?;
+                device.end_command_buffer(command_buffer)
+                    .map_err(|e| VulkanError::CommandBuffer(format!("Failed to end command buffer {}: {:?}", i, e)))?;
             }
         }
         
+        debug!("Command buffers created and recorded successfully");
         Ok(command_buffers)
     }
     
-    fn create_sync_objects(device: &Device) -> Result<(Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>), Box<dyn std::error::Error>> {
+    /// Create synchronization objects for frame rendering
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    ///
+    /// # Returns
+    /// A tuple of (image_available_semaphores, render_finished_semaphores, in_flight_fences)
+    ///
+    /// # Errors
+    /// Returns an error if sync object creation fails
+    fn create_sync_objects(device: &Device) -> Result<(Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>)> {
+        debug!("Creating synchronization objects for {} frames in flight", config::vulkan::MAX_FRAMES_IN_FLIGHT);
+        
         let mut image_available_semaphores = vec![];
         let mut render_finished_semaphores = vec![];
         let mut in_flight_fences = vec![];
@@ -258,32 +370,58 @@ impl VulkanRenderer {
         let fence_info = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED);
         
-        for _ in 0..MAX_FRAMES_IN_FLIGHT {
-            let image_available_semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
-            let render_finished_semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
-            let in_flight_fence = unsafe { device.create_fence(&fence_info, None)? };
+        for i in 0..config::vulkan::MAX_FRAMES_IN_FLIGHT {
+            let image_available_semaphore = unsafe {
+                device.create_semaphore(&semaphore_info, None)
+                    .map_err(|e| VulkanError::Rendering(format!("Failed to create image available semaphore {}: {:?}", i, e)))?
+            };
+            let render_finished_semaphore = unsafe {
+                device.create_semaphore(&semaphore_info, None)
+                    .map_err(|e| VulkanError::Rendering(format!("Failed to create render finished semaphore {}: {:?}", i, e)))?
+            };
+            let in_flight_fence = unsafe {
+                device.create_fence(&fence_info, None)
+                    .map_err(|e| VulkanError::Rendering(format!("Failed to create in-flight fence {}: {:?}", i, e)))?
+            };
             
             image_available_semaphores.push(image_available_semaphore);
             render_finished_semaphores.push(render_finished_semaphore);
             in_flight_fences.push(in_flight_fence);
         }
         
+        debug!("Synchronization objects created successfully");
         Ok((image_available_semaphores, render_finished_semaphores, in_flight_fences))
     }
     
-    pub fn draw_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Draw a single frame
+    ///
+    /// # Returns
+    /// Ok(()) if the frame was drawn successfully
+    /// Err if drawing failed
+    ///
+    /// # Errors
+    /// Returns an error if any part of the drawing process fails
+    pub fn draw_frame(&mut self) -> Result<()> {
+        debug!("Drawing frame {}", self.current_frame);
+        
         unsafe {
-            self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, u64::MAX)?;
+            // Wait for the previous frame to finish
+            self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, u64::MAX)
+                .map_err(|e| VulkanError::Rendering(format!("Failed to wait for fences: {:?}", e)))?;
             
+            // Acquire an image from the swapchain
             let (image_index, _) = self.swapchain.swapchain_loader.acquire_next_image(
-                self.swapchain.swapchain, 
-                u64::MAX, 
-                self.image_available_semaphores[self.current_frame], 
+                self.swapchain.swapchain,
+                u64::MAX,
+                self.image_available_semaphores[self.current_frame],
                 vk::Fence::null()
-            )?;
+            ).map_err(|e| VulkanError::Rendering(format!("Failed to acquire next image: {:?}", e)))?;
             
-            self.device.device.reset_fences(&[self.in_flight_fences[self.current_frame]])?;
+            // Reset the fence for this frame
+            self.device.device.reset_fences(&[self.in_flight_fences[self.current_frame]])
+                .map_err(|e| VulkanError::Rendering(format!("Failed to reset fences: {:?}", e)))?;
             
+            // Set up the submission info
             let wait_semaphores = [self.image_available_semaphores[self.current_frame]];
             let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
             let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -296,12 +434,14 @@ impl VulkanRenderer {
                 .signal_semaphores(&signal_semaphores)
                 .build();
             
+            // Submit the command buffer
             self.device.device.queue_submit(
-                self.device.graphics_queue, 
-                &[submit_info], 
+                self.device.graphics_queue,
+                &[submit_info],
                 self.in_flight_fences[self.current_frame]
-            )?;
+            ).map_err(|e| VulkanError::Rendering(format!("Failed to submit command buffer: {:?}", e)))?;
             
+            // Present the image
             let swapchains = [self.swapchain.swapchain];
             let image_indices = [image_index];
             
@@ -310,11 +450,14 @@ impl VulkanRenderer {
                 .swapchains(&swapchains)
                 .image_indices(&image_indices);
             
-            self.swapchain.swapchain_loader.queue_present(self.device.present_queue, &present_info)?;
+            self.swapchain.swapchain_loader.queue_present(self.device.present_queue, &present_info)
+                .map_err(|e| VulkanError::Rendering(format!("Failed to present image: {:?}", e)))?;
             
-            self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+            // Advance to the next frame
+            self.current_frame = (self.current_frame + 1) % config::vulkan::MAX_FRAMES_IN_FLIGHT;
         }
         
+        debug!("Frame {} completed successfully", self.current_frame);
         Ok(())
     }
     
@@ -334,7 +477,7 @@ impl VulkanRenderer {
     fn create_vertex_buffer(
         device: &Device,
         vertices: &[Vertex],
-    ) -> Result<(vk::Buffer, vk::DeviceMemory), Box<dyn std::error::Error>> {
+    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
         let buffer_size = (std::mem::size_of::<Vertex>() * vertices.len()) as vk::DeviceSize;
         
         let buffer_info = vk::BufferCreateInfo::builder()
@@ -366,7 +509,7 @@ impl VulkanRenderer {
     fn create_index_buffer(
         device: &Device,
         indices: &[u32],
-    ) -> Result<(vk::Buffer, vk::DeviceMemory), Box<dyn std::error::Error>> {
+    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
         let buffer_size = (std::mem::size_of::<u32>() * indices.len()) as vk::DeviceSize;
         
         let buffer_info = vk::BufferCreateInfo::builder()
@@ -398,7 +541,7 @@ impl VulkanRenderer {
     fn find_memory_type(
         type_filter: u32,
         _properties: vk::MemoryPropertyFlags,
-    ) -> Result<u32, Box<dyn std::error::Error>> {
+    ) -> Result<u32> {
         // This is a simplified implementation
         // In a real application, you would query the physical device memory properties
         // For now, we'll just return the first memory type that matches
@@ -408,7 +551,7 @@ impl VulkanRenderer {
                 return Ok(i);
             }
         }
-        Err("Failed to find suitable memory type".into())
+        Err(VulkanError::MemoryAllocation("Failed to find suitable memory type".to_string()).into())
     }
 }
 
