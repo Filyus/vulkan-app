@@ -21,6 +21,15 @@ pub mod window {
     pub const MIN_HEIGHT: u32 = 300;
 }
 
+/// Windowed fullscreen configuration
+pub mod windowed_fullscreen {
+    /// Enable windowed fullscreen mode instead of true fullscreen
+    pub const ENABLED: bool = true;
+    
+    /// Offset from screen edges to avoid overlapping with taskbar/dock
+    pub const SCREEN_EDGE_OFFSET: u32 = 0;
+}
+
 /// Vulkan configuration
 pub mod vulkan {
     /// Maximum number of frames that can be in flight
@@ -47,9 +56,11 @@ pub mod vulkan {
     
     /// Disable validation layers in release builds
     #[cfg(not(debug_assertions))]
+    #[allow(dead_code)]
     pub const ENABLE_VALIDATION_LAYERS: bool = false;
     
     /// Validation layers to enable
+    #[allow(dead_code)]
     pub const VALIDATION_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
     
     /// Device extensions required

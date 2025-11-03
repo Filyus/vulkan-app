@@ -3,7 +3,7 @@ use ash::{Device, Instance, Entry};
 use crate::vulkan::device::{VulkanDevice, QueueFamilyIndices};
 use crate::error::{Result, VulkanError};
 use winit::window::Window;
-use log::{debug, info};
+use log::{debug, info, error};
 
 /// Vulkan swapchain wrapper with proper resource management
 ///
@@ -282,17 +282,25 @@ impl VulkanSwapchain {
     pub fn recreate(&mut self, device: &VulkanDevice, instance: &Instance, entry: &Entry, surface: vk::SurfaceKHR, new_width: u32, new_height: u32) -> Result<()> {
         info!("Recreating swapchain with new dimensions {}x{}", new_width, new_height);
         
-        // Clean up old image views
+        // Validate dimensions to prevent invalid swapchain creation
+        if new_width == 0 || new_height == 0 {
+            error!("Invalid dimensions for swapchain recreation: {}x{}", new_width, new_height);
+            return Err(VulkanError::SwapchainCreation("Invalid dimensions for swapchain recreation".to_string()).into());
+        }
+        
+        // Clean up old image views with error handling
         unsafe {
             for &image_view in &self.swapchain_image_views {
-                device.device.destroy_image_view(image_view, None);
+                if image_view != vk::ImageView::null() {
+                    device.device.destroy_image_view(image_view, None);
+                }
             }
         }
         self.swapchain_image_views.clear();
         
         // Create new swapchain with old swapchain as reference
         let (new_swapchain, new_swapchain_images, new_swapchain_image_format, new_swapchain_extent) =
-            Self::create_swapchain_with_old(
+            match Self::create_swapchain_with_old(
                 instance,
                 entry,
                 &device.device,
@@ -302,20 +310,47 @@ impl VulkanSwapchain {
                 &self.swapchain_loader,
                 new_width,
                 new_height
-            )?;
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to create new swapchain: {}", e);
+                    // Attempt to restore old swapchain if creation fails
+                    return Err(e);
+                }
+            };
         
-        // Update swapchain data
+        // Update swapchain data only after successful creation
+        let old_swapchain = self.swapchain;
         self.swapchain = new_swapchain;
         self._swapchain_images = new_swapchain_images;
         self.swapchain_image_format = new_swapchain_image_format;
         self.swapchain_extent = new_swapchain_extent;
         
-        // Create new image views
-        self.swapchain_image_views = Self::create_swapchain_image_views(
+        // Create new image views with error handling
+        match Self::create_swapchain_image_views(
             &device.device,
             &self._swapchain_images,
             self.swapchain_image_format
-        )?;
+        ) {
+            Ok(image_views) => {
+                self.swapchain_image_views = image_views;
+            }
+            Err(e) => {
+                error!("Failed to create swapchain image views: {}", e);
+                // If image view creation fails, we need to clean up the new swapchain
+                // and restore the old one
+                unsafe {
+                    self.swapchain_loader.destroy_swapchain(self.swapchain, None);
+                }
+                self.swapchain = old_swapchain;
+                return Err(e);
+            }
+        }
+        
+        // Only destroy the old swapchain after everything is successfully created
+        unsafe {
+            self.swapchain_loader.destroy_swapchain(old_swapchain, None);
+        }
         
         info!("Swapchain recreated successfully");
         Ok(())

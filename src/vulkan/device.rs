@@ -3,7 +3,7 @@ use ash::{Device, Instance, Entry};
 use std::ffi::{CStr, CString};
 use crate::error::{Result, VulkanError};
 use crate::config;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 /// Queue family indices for graphics and presentation
 #[derive(Clone, Debug, Default)]
@@ -310,6 +310,32 @@ impl VulkanDevice {
             let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
             name.to_string_lossy() == extension_name
         })
+    }
+    
+    /// Safely wait for device idle with timeout and error handling
+    /// This prevents hanging during device operations, especially during fullscreen transitions
+    pub fn safe_device_wait_idle(&self) -> Result<()> {
+        const MAX_WAIT_ATTEMPTS: u32 = 3;
+        const WAIT_DELAY_MS: u64 = 100;
+        
+        for attempt in 1..=MAX_WAIT_ATTEMPTS {
+            match unsafe { self.device.device_wait_idle() } {
+                Ok(_) => {
+                    debug!("Device wait idle successful on attempt {}", attempt);
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("Device wait idle failed on attempt {}: {:?}", attempt, e);
+                    if attempt < MAX_WAIT_ATTEMPTS {
+                        std::thread::sleep(std::time::Duration::from_millis(WAIT_DELAY_MS));
+                    } else {
+                        return Err(VulkanError::Rendering(format!("Device wait idle failed after {} attempts: {:?}", MAX_WAIT_ATTEMPTS, e)).into());
+                    }
+                }
+            }
+        }
+        
+        Ok(())
     }
 }
 
