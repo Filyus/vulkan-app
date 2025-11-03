@@ -3,6 +3,7 @@ mod ecs;
 mod error;
 mod config;
 mod debug;
+mod camera;
 
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};

@@ -4,6 +4,7 @@ use crate::vulkan::{VulkanInstance, VulkanDevice, VulkanSwapchain, VulkanPipelin
 use crate::ecs::components::Vertex;
 use crate::error::{Result, VulkanError};
 use crate::config;
+use crate::camera::Camera;
 use winit::window::Window;
 use log::{debug, info};
 
@@ -63,6 +64,9 @@ pub struct VulkanRenderer {
     
     // Instance (cleaned up last)
     pub instance: VulkanInstance,
+    
+    // Camera for proper projection handling
+    pub camera: Camera,
     
     // Runtime state
     current_frame: usize,
@@ -144,6 +148,18 @@ impl VulkanRenderer {
         let index_buffer = vk::Buffer::null();
         let index_buffer_memory = vk::DeviceMemory::null();
         
+        // Create camera with proper aspect ratio
+        let aspect_ratio = swapchain.swapchain_extent.width as f32 / swapchain.swapchain_extent.height as f32;
+        let camera = Camera::with_params(
+            cgmath::Point3::new(0.0, 0.0, 2.0),  // position
+            cgmath::Point3::new(0.0, 0.0, 0.0),  // target
+            cgmath::Vector3::new(0.0, 1.0, 0.0), // up
+            cgmath::Deg(45.0).into(),              // fov
+            0.1,                                 // near
+            100.0,                               // far
+            aspect_ratio,                         // aspect ratio
+        );
+        
         info!("Vulkan renderer initialized successfully");
         
         Ok(Self {
@@ -164,6 +180,7 @@ impl VulkanRenderer {
             surface: SurfaceWrapper { surface, surface_loader },
             device,
             instance,
+            camera,
             current_frame: 0,
             time: 0.0,
         })
@@ -375,7 +392,7 @@ impl VulkanRenderer {
                 device.cmd_push_constants(
                     command_buffer,
                     pipeline_layout,
-                    vk::ShaderStageFlags::FRAGMENT,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                     0,
                     bytemuck::bytes_of(&push_constants)
                 );
@@ -462,14 +479,13 @@ impl VulkanRenderer {
                 vk::Fence::null()
             ).map_err(|e| VulkanError::Rendering(format!("Failed to acquire next image: {:?}", e)))?;
             
-            // Update push constants with current aspect ratio and time
+            // Update push constants with camera matrices
             let extent = self.swapchain.swapchain_extent;
-            let aspect_ratio = extent.width as f32 / extent.height as f32;
             let push_constants = [
                 extent.width as f32,      // uResolution.x
                 extent.height as f32,     // uResolution.y
                 self.time,                // uTime
-                aspect_ratio,             // uAspectRatio
+                self.camera.aspect_ratio,    // uAspectRatio (from camera)
             ];
             
             // Record command buffer with updated push constants
@@ -516,11 +532,11 @@ impl VulkanRenderer {
             };
             self.device.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
             
-            // Push updated constants
+            // Push updated constants to both vertex and fragment shaders
             self.device.device.cmd_push_constants(
                 command_buffer,
                 self.pipeline.pipeline_layout,
-                vk::ShaderStageFlags::FRAGMENT,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 0,
                 bytemuck::bytes_of(&push_constants)
             );
@@ -607,8 +623,12 @@ impl VulkanRenderer {
         }
         
         // Recreate swapchain
-        self.swapchain.recreate(&self.device.device, &self.instance.instance, self.surface.surface, new_width, new_height)
+        self.swapchain.recreate(&self.device, &self.instance.instance, &self.instance.entry, self.surface.surface, new_width, new_height)
             .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to recreate swapchain: {}", e)))?;
+        
+        // Update camera aspect ratio
+        let new_aspect_ratio = new_width as f32 / new_height as f32;
+        self.camera.set_aspect_ratio(new_aspect_ratio);
         
         // Recreate framebuffers
         self.recreate_framebuffers()?;

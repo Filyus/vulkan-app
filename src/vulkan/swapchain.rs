@@ -279,13 +279,13 @@ impl VulkanSwapchain {
     /// # Returns
     /// * Ok(()) if recreation was successful
     /// * Err if recreation failed
-    pub fn recreate(&mut self, device: &Device, instance: &Instance, surface: vk::SurfaceKHR, new_width: u32, new_height: u32) -> Result<()> {
+    pub fn recreate(&mut self, device: &VulkanDevice, instance: &Instance, entry: &Entry, surface: vk::SurfaceKHR, new_width: u32, new_height: u32) -> Result<()> {
         info!("Recreating swapchain with new dimensions {}x{}", new_width, new_height);
         
         // Clean up old image views
         unsafe {
             for &image_view in &self.swapchain_image_views {
-                device.destroy_image_view(image_view, None);
+                device.device.destroy_image_view(image_view, None);
             }
         }
         self.swapchain_image_views.clear();
@@ -294,7 +294,9 @@ impl VulkanSwapchain {
         let (new_swapchain, new_swapchain_images, new_swapchain_image_format, new_swapchain_extent) =
             Self::create_swapchain_with_old(
                 instance,
-                device,
+                entry,
+                &device.device,
+                device.physical_device,
                 surface,
                 self.swapchain,
                 &self.swapchain_loader,
@@ -310,7 +312,7 @@ impl VulkanSwapchain {
         
         // Create new image views
         self.swapchain_image_views = Self::create_swapchain_image_views(
-            device,
+            &device.device,
             &self._swapchain_images,
             self.swapchain_image_format
         )?;
@@ -336,8 +338,10 @@ impl VulkanSwapchain {
     /// # Errors
     /// Returns an error if swapchain creation fails
     fn create_swapchain_with_old(
-        _instance: &Instance,
+        instance: &Instance,
+        entry: &Entry,
         _device: &Device,
+        physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
         old_swapchain: vk::SwapchainKHR,
         swapchain_loader: &ash::extensions::khr::Swapchain,
@@ -346,15 +350,37 @@ impl VulkanSwapchain {
     ) -> Result<(vk::SwapchainKHR, Vec<vk::Image>, vk::Format, vk::Extent2D)> {
         debug!("Creating new swapchain with old swapchain reference");
         
-        // Get surface capabilities (this would need the surface and physical device)
-        // For now, we'll use a simplified approach
-        let extent = vk::Extent2D {
-            width: new_width,
-            height: new_height,
+        // Get surface capabilities to determine proper extent
+        let surface_loader_temp = ash::extensions::khr::Surface::new(entry, instance);
+        let surface_capabilities = unsafe {
+            surface_loader_temp.get_physical_device_surface_capabilities(physical_device, surface)
+                .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to get surface capabilities during recreate: {:?}", e)))?
+        };
+        
+        // Determine the proper extent based on surface capabilities
+        let extent = if surface_capabilities.current_extent.width != u32::MAX {
+            surface_capabilities.current_extent
+        } else {
+            // Clamp the requested dimensions to the supported range
+            vk::Extent2D {
+                width: new_width.clamp(
+                    surface_capabilities.min_image_extent.width,
+                    surface_capabilities.max_image_extent.width
+                ),
+                height: new_height.clamp(
+                    surface_capabilities.min_image_extent.height,
+                    surface_capabilities.max_image_extent.height
+                ),
+            }
         };
         
         let format = vk::Format::B8G8R8A8_SRGB;
-        let image_count = 2; // Use double buffering
+        let image_count = surface_capabilities.min_image_count + 1;
+        let image_count = if surface_capabilities.max_image_count > 0 {
+            image_count.min(surface_capabilities.max_image_count)
+        } else {
+            image_count
+        };
         
         let create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface)

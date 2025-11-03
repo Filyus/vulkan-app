@@ -13,6 +13,7 @@ https://github.com/Filyus/vulkan-app.git
 - **ECS Architecture**: Entity Component System for scalable game/application development
 - **Dynamic Lighting**: Phong lighting model with multiple lights and shadows
 - **Real-time Updates**: Dynamic aspect ratio handling and window resize support
+- **Proper Camera System**: Advanced camera module with correct aspect ratio and projection matrix handling
 - **Complete Vulkan Implementation**: Full Vulkan setup with instance, device, swapchain, and rendering pipeline
 - **Modern Error Handling**: Comprehensive error handling with custom `AppError` types
 - **Debug Support**: Extensive debugging utilities and validation layer integration
@@ -34,7 +35,15 @@ git clone https://github.com/Filyus/vulkan-app.git
 cd vulkan-app
 ```
 
-2. Build and run the application:
+2. Compile shaders (required after shader changes):
+```bash
+cd shaders
+glslc sdf.vert -o sdf.vert.spv
+glslc sdf.frag -o sdf.frag.spv
+cd ..
+```
+
+3. Build and run the application:
 ```bash
 cargo run
 ```
@@ -58,6 +67,7 @@ cargo test
 - **Error Handling** (`src/error.rs`): Comprehensive error types with `AppError` enum
 - **Debug Utilities** (`src/debug.rs`): Validation layers, debug messaging, and logging
 - **Configuration** (`src/config.rs`): Centralized settings for all application components
+- **Camera System** (`src/camera.rs`): Advanced camera with proper aspect ratio and projection handling
 
 ### Project Structure
 
@@ -79,9 +89,12 @@ src/
 │   ├── swapchain.rs    # Swapchain handling
 │   ├── pipeline.rs     # Graphics pipeline
 │   └── renderer.rs     # Main renderer
+└── camera.rs           # Camera system with aspect ratio handling
 └── shaders/             # GLSL shader sources
     ├── sdf.vert        # SDF vertex shader (fullscreen quad)
-    └── sdf.frag        # SDF fragment shader (ray marching)
+    ├── sdf.frag        # SDF fragment shader (ray marching)
+    ├── sdf.vert.spv    # Compiled vertex shader
+    └── sdf.frag.spv    # Compiled fragment shader
 ```
 
 ## Dependencies
@@ -132,15 +145,51 @@ For optimized release builds:
 cargo build --release
 ```
 
+## Shader Compilation
+
+This application uses GLSL shaders that must be compiled to SPIR-V bytecode before running. The shader compilation step is essential when:
+
+- First building the application
+- Making changes to shader source files
+- Updating shader uniforms or data structures
+
+### Compiling Shaders
+
+Use the GLSLC compiler (part of the Vulkan SDK) to compile shaders:
+
+```bash
+cd shaders
+glslc sdf.vert -o sdf.vert.spv
+glslc sdf.frag -o sdf.frag.spv
+```
+
+### Shader Files
+
+- **sdf.vert**: Vertex shader for fullscreen quad rendering
+- **sdf.frag**: Fragment shader implementing SDF ray marching with proper aspect ratio handling
+
+The shaders include:
+- Proper aspect ratio correction to prevent stretching during window resize
+- Push constants for dynamic window data (resolution, time, aspect ratio)
+- SDF ray marching implementation with multiple shape support
+- Phong lighting model with shadows
+
 ## Troubleshooting
 
 If you encounter build errors:
 
 1. **Vulkan SDK**: Ensure the Vulkan SDK is properly installed and the `VULKAN_SDK` environment variable is set
 2. **Build Tools**: Make sure you have the Visual Studio Build Tools installed (on Windows)
-3. **Clean Build**: Try running `cargo clean` and then `cargo build` to force a clean rebuild
+3. **Shader Compilation**: Always compile shaders after making changes to GLSL files
+4. **Clean Build**: Try running `cargo clean` and then `cargo build` to force a clean rebuild
 
 If the app fails to run with validation layer errors, it will automatically fall back to running without validation layers.
+
+### Common Issues
+
+- **Render Stretching**: If the scene appears stretched when resizing the window, ensure shaders are compiled with the latest source code
+- **Compilation Errors**: Check that the GLSLC compiler is available in your PATH (included with Vulkan SDK)
+- **Aspect Ratio Issues**: The camera system automatically handles aspect ratio changes, but shader compilation is required for updates to take effect
 
 ## Contributing
 
