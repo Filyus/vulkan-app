@@ -1,6 +1,6 @@
-# Vulkan App - ECS-Based Vulkan Renderer
+# Vulkan App - SDF Rendering with ECS Architecture
 
-A comprehensive Vulkan application written in Rust featuring Entity Component System (ECS) architecture, complete rendering pipeline, and modern Vulkan best practices using the Ash Vulkan bindings.
+A comprehensive Vulkan application written in Rust featuring Entity Component System (ECS) architecture with Signed Distance Function (SDF) rendering, complete rendering pipeline, and modern Vulkan best practices using the Ash Vulkan bindings.
 
 ## Repository
 
@@ -8,8 +8,12 @@ https://github.com/Filyus/vulkan-app.git
 
 ## Features
 
-- **Complete Vulkan Implementation**: Full Vulkan setup with instance, device, swapchain, and rendering pipeline
+- **SDF Rendering**: Signed Distance Function rendering instead of traditional mesh geometry
+- **Multiple SDF Shapes**: Support for spheres, boxes, and planes with ray marching
 - **ECS Architecture**: Entity Component System for scalable game/application development
+- **Dynamic Lighting**: Phong lighting model with multiple lights and shadows
+- **Real-time Updates**: Dynamic aspect ratio handling and window resize support
+- **Complete Vulkan Implementation**: Full Vulkan setup with instance, device, swapchain, and rendering pipeline
 - **Modern Error Handling**: Comprehensive error handling with custom `AppError` types
 - **Debug Support**: Extensive debugging utilities and validation layer integration
 - **Configuration System**: Centralized configuration for window, Vulkan, rendering, and debug settings
@@ -76,8 +80,8 @@ src/
 │   ├── pipeline.rs     # Graphics pipeline
 │   └── renderer.rs     # Main renderer
 └── shaders/             # GLSL shader sources
-    ├── triangle.vert    # Vertex shader
-    └── triangle.frag    # Fragment shader
+    ├── sdf.vert        # SDF vertex shader (fullscreen quad)
+    └── sdf.frag        # SDF fragment shader (ray marching)
 ```
 
 ## Dependencies
@@ -140,11 +144,13 @@ If the app fails to run with validation layer errors, it will automatically fall
 
 ## Contributing
 
-This project serves as a foundation for Vulkan applications in Rust. Key areas for contribution:
+This project demonstrates advanced SDF rendering techniques with ECS architecture. Key areas for contribution:
 
-- Additional ECS components and systems
-- Advanced rendering techniques (lighting, shadows, post-processing)
-- Performance optimizations
+- Additional SDF primitives (torus, cylinder, complex shapes)
+- Advanced lighting models (PBR, global illumination)
+- Performance optimizations (LOD systems, culling)
+- Animation and transformation systems
+- Material systems and texture support
 - Cross-platform improvements
 - Additional debug and profiling tools
 
