@@ -1,7 +1,6 @@
 use ash::vk;
 use ash::{Device, Instance};
 use crate::vulkan::{VulkanInstance, VulkanDevice, VulkanSwapchain, VulkanPipeline};
-use crate::ecs::components::Vertex;
 use crate::error::{Result, VulkanError};
 use crate::config;
 use crate::camera::Camera;
@@ -26,11 +25,6 @@ pub struct VulkanRenderer {
     // Order matters for cleanup! Rust drops in reverse order of declaration.
     // Things that depend on others must be declared first.
     
-    // ECS-related fields (cleaned up first)
-    #[allow(dead_code)]
-    vertices: Vec<Vertex>,
-    #[allow(dead_code)]
-    indices: Vec<u32>,
     _vertex_buffer: vk::Buffer,
     _vertex_buffer_memory: vk::DeviceMemory,
     _index_buffer: vk::Buffer,
@@ -49,14 +43,12 @@ pub struct VulkanRenderer {
     framebuffers: Vec<vk::Framebuffer>,
     
     // Pipeline (cleaned up before device)
-    #[allow(dead_code)]
     pub pipeline: VulkanPipeline,
     
     // Swapchain (cleaned up before surface and device)
     pub swapchain: VulkanSwapchain,
     
     // Surface (cleaned up before instance, but after swapchain)
-    #[allow(dead_code)]
     surface: SurfaceWrapper,
     
     // Device (cleaned up before instance)
@@ -73,6 +65,9 @@ pub struct VulkanRenderer {
     
     // For dynamic push constant updates
     time: f32,
+    
+    // HUD reference for rendering
+    hud_reference: Option<*mut crate::hud::HUD>,
 }
 
 impl VulkanRenderer {
@@ -125,22 +120,6 @@ impl VulkanRenderer {
         let (image_available_semaphores, render_finished_semaphores, in_flight_fences) =
             Self::create_sync_objects(&device.device)?;
         
-        // Create default triangle vertices for initial setup
-        let default_vertices = vec![
-            Vertex {
-                position: cgmath::Vector3::new(0.0, 0.5, 0.0),
-                color: cgmath::Vector3::new(1.0, 0.0, 0.0),
-            },
-            Vertex {
-                position: cgmath::Vector3::new(-0.5, -0.5, 0.0),
-                color: cgmath::Vector3::new(0.0, 1.0, 0.0),
-            },
-            Vertex {
-                position: cgmath::Vector3::new(0.5, -0.5, 0.0),
-                color: cgmath::Vector3::new(0.0, 0.0, 1.0),
-            },
-        ];
-        let default_indices = vec![0, 1, 2];
         
         // Temporarily disable vertex buffer creation to focus on ECS integration
         let vertex_buffer = vk::Buffer::null();
@@ -163,8 +142,6 @@ impl VulkanRenderer {
         info!("Vulkan renderer initialized successfully");
         
         Ok(Self {
-            vertices: default_vertices,
-            indices: default_indices,
             _vertex_buffer: vertex_buffer,
             _vertex_buffer_memory: vertex_buffer_memory,
             _index_buffer: index_buffer,
@@ -183,6 +160,7 @@ impl VulkanRenderer {
             camera,
             current_frame: 0,
             time: 0.0,
+            hud_reference: None,
         })
     }
     
@@ -454,6 +432,170 @@ impl VulkanRenderer {
         Ok((image_available_semaphores, render_finished_semaphores, in_flight_fences))
     }
     
+    /// Draw a single frame with HUD
+    ///
+    /// # Arguments
+    /// * `hud` - The HUD to render
+    ///
+    /// # Returns
+    /// Ok(()) if the frame was drawn successfully
+    /// Err if drawing failed
+    ///
+    /// # Errors
+    /// Returns an error if any part of the drawing process fails
+    pub fn draw_frame_with_hud(&mut self, hud: &mut crate::hud::HUD) -> Result<()> {
+        debug!("Drawing frame {} with HUD", self.current_frame);
+        
+        // Update time for animation
+        self.time += 0.016; // Approximate 60 FPS
+        
+        unsafe {
+            // Wait for the previous frame to finish with timeout to prevent hanging
+            const FENCE_TIMEOUT_NS: u64 = 1_000_000_000; // 1 second timeout
+            
+            match self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, FENCE_TIMEOUT_NS) {
+                Ok(_) => {
+                    debug!("Fence wait completed successfully");
+                }
+                Err(e) => {
+                    error!("Fence wait timed out or failed: {:?}. This may indicate a GPU hang.", e);
+                    return Err(VulkanError::Rendering(format!("Fence wait failed: {:?}", e)).into());
+                }
+            }
+            
+            // Acquire an image from the swapchain
+            let (image_index, _) = self.swapchain.swapchain_loader.acquire_next_image(
+                self.swapchain.swapchain,
+                u64::MAX,
+                self.image_available_semaphores[self.current_frame],
+                vk::Fence::null()
+            ).map_err(|e| VulkanError::Rendering(format!("Failed to acquire next image: {:?}", e)))?;
+            
+            // Update push constants with camera matrices
+            let extent = self.swapchain.swapchain_extent;
+            let push_constants = [
+                extent.width as f32,      // uResolution.x
+                extent.height as f32,     // uResolution.y
+                self.time,                // uTime
+                self.camera.aspect_ratio,    // uAspectRatio (from camera)
+            ];
+            
+            // Record command buffer with updated push constants
+            let command_buffer = self.command_buffers[image_index as usize];
+            
+            // Reset and rerecord command buffer
+            self.device.device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to reset command buffer: {:?}", e)))?;
+            
+            let begin_info = vk::CommandBufferBeginInfo::default();
+            self.device.device.begin_command_buffer(command_buffer, &begin_info)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer: {:?}", e)))?;
+            
+            let render_pass_begin_info = vk::RenderPassBeginInfo::default()
+                .render_pass(self.pipeline.render_pass)
+                .framebuffer(self.framebuffers[image_index as usize])
+                .render_area(vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                })
+                .clear_values(&[vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: config::rendering::CLEAR_COLOR,
+                    },
+                }]);
+            
+            self.device.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.graphics_pipeline);
+            
+            // Set dynamic viewport and scissor
+            let viewport = vk::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: extent.width as f32,
+                height: extent.height as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            };
+            self.device.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+            
+            let scissor = vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            };
+            self.device.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+            
+            // Push updated constants to both vertex and fragment shaders
+            self.device.device.cmd_push_constants(
+                command_buffer,
+                self.pipeline.pipeline_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                bytemuck::bytes_of(&push_constants)
+            );
+            
+            self.device.device.cmd_draw(command_buffer, 6, 1, 0, 0); // Draw 6 vertices for fullscreen quad
+            
+            // Render HUD
+            debug!("Rendering HUD directly");
+            let hud_extent = vk::Extent2D {
+                width: extent.width,
+                height: extent.height,
+            };
+            
+            // Render ImGui HUD
+            if let Err(e) = hud.render(command_buffer, hud_extent) {
+                error!("Failed to render HUD: {}", e);
+            } else {
+                debug!("HUD rendered successfully");
+            }
+            
+            self.device.device.cmd_end_render_pass(command_buffer);
+            self.device.device.end_command_buffer(command_buffer)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to end command buffer: {:?}", e)))?;
+            
+            // Reset the fence for this frame
+            self.device.device.reset_fences(&[self.in_flight_fences[self.current_frame]])
+                .map_err(|e| VulkanError::Rendering(format!("Failed to reset fences: {:?}", e)))?;
+            
+            // Set up the submission info
+            let wait_semaphores = [self.image_available_semaphores[self.current_frame]];
+            let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
+            let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+            
+            let command_buffers = [command_buffer];
+            let submit_info = vk::SubmitInfo::default()
+                .wait_semaphores(&wait_semaphores)
+                .wait_dst_stage_mask(&wait_stages)
+                .command_buffers(&command_buffers)
+                .signal_semaphores(&signal_semaphores);
+            
+            // Submit the command buffer
+            self.device.device.queue_submit(
+                self.device.graphics_queue,
+                &[submit_info],
+                self.in_flight_fences[self.current_frame]
+            ).map_err(|e| VulkanError::Rendering(format!("Failed to submit command buffer: {:?}", e)))?;
+            
+            // Present the image
+            let swapchains = [self.swapchain.swapchain];
+            let image_indices = [image_index];
+            
+            let present_info = vk::PresentInfoKHR::default()
+                .wait_semaphores(&signal_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&image_indices);
+            
+            self.swapchain.swapchain_loader.queue_present(self.device.present_queue, &present_info)
+                .map_err(|e| VulkanError::Rendering(format!("Failed to present image: {:?}", e)))?;
+            
+            // Advance to the next frame
+            self.current_frame = (self.current_frame + 1) % config::vulkan::MAX_FRAMES_IN_FLIGHT;
+        }
+        
+        debug!("Frame {} with HUD completed successfully", self.current_frame);
+        Ok(())
+    }
+
     /// Draw a single frame
     ///
     /// # Returns
@@ -553,6 +695,25 @@ impl VulkanRenderer {
             );
             
             self.device.device.cmd_draw(command_buffer, 6, 1, 0, 0); // Draw 6 vertices for fullscreen quad
+            
+            // Render HUD if available
+            if let Some(hud) = self.get_hud_for_rendering() {
+                debug!("HUD found for rendering, calling HUD render method");
+                let hud_extent = vk::Extent2D {
+                    width: extent.width,
+                    height: extent.height,
+                };
+                
+                // Render ImGui HUD
+                if let Err(e) = hud.render(command_buffer, hud_extent) {
+                    error!("Failed to render HUD: {}", e);
+                } else {
+                    debug!("HUD rendered successfully");
+                }
+            } else {
+                debug!("No HUD available for rendering");
+            }
+            
             self.device.device.cmd_end_render_pass(command_buffer);
             self.device.device.end_command_buffer(command_buffer)
                 .map_err(|e| VulkanError::CommandBuffer(format!("Failed to end command buffer: {:?}", e)))?;
@@ -600,19 +761,6 @@ impl VulkanRenderer {
         Ok(())
     }
     
-    #[allow(dead_code)]
-    pub fn update_vertices(&mut self, vertices: &[Vertex]) {
-        self.vertices = vertices.to_vec();
-        // In a real implementation, we would update the vertex buffer here
-        // For now, we'll just store the data
-    }
-    
-    #[allow(dead_code)]
-    pub fn update_indices(&mut self, indices: &[u32]) {
-        self.indices = indices.to_vec();
-        // In a real implementation, we would update the index buffer here
-        // For now, we'll just store the data
-    }
     
     /// Handle window resize
     ///
@@ -719,85 +867,16 @@ impl VulkanRenderer {
         Ok(())
     }
     
-    #[allow(dead_code)]
-    fn create_vertex_buffer(
-        device: &Device,
-        vertices: &[Vertex],
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        let buffer_size = (std::mem::size_of::<Vertex>() * vertices.len()) as vk::DeviceSize;
-        
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(buffer_size)
-            .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        
-        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
-        
-        let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
-        
-        let alloc_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(mem_requirements.size)
-            .memory_type_index(Self::find_memory_type(
-                mem_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?);
-        
-        let buffer_memory = unsafe { device.allocate_memory(&alloc_info, None)? };
-        
-        unsafe {
-            device.bind_buffer_memory(buffer, buffer_memory, 0)?;
-        }
-        
-        Ok((buffer, buffer_memory))
-    }
     
-    #[allow(dead_code)]
-    fn create_index_buffer(
-        device: &Device,
-        indices: &[u32],
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        let buffer_size = (std::mem::size_of::<u32>() * indices.len()) as vk::DeviceSize;
-        
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(buffer_size)
-            .usage(vk::BufferUsageFlags::INDEX_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        
-        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
-        
-        let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
-        
-        let alloc_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(mem_requirements.size)
-            .memory_type_index(Self::find_memory_type(
-                mem_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?);
-        
-        let buffer_memory = unsafe { device.allocate_memory(&alloc_info, None)? };
-        
+    /// Get HUD reference for rendering (unsafe - used during render pass)
+    fn get_hud_for_rendering(&self) -> Option<&mut crate::hud::HUD> {
+        debug!("Getting HUD reference for rendering, current reference: {:?}", self.hud_reference);
         unsafe {
-            device.bind_buffer_memory(buffer, buffer_memory, 0)?;
+            self.hud_reference.map(|ptr| {
+                debug!("Dereferencing HUD pointer: {:?}", ptr);
+                &mut *ptr
+            })
         }
-        
-        Ok((buffer, buffer_memory))
-    }
-    
-    #[allow(dead_code)]
-    fn find_memory_type(
-        type_filter: u32,
-        _properties: vk::MemoryPropertyFlags,
-    ) -> Result<u32> {
-        // This is a simplified implementation
-        // In a real application, you would query the physical device memory properties
-        // For now, we'll just return the first memory type that matches
-        for i in 0..32 {
-            if (type_filter & (1 << i)) != 0 {
-                // In a real implementation, you would check if the memory type has the required properties
-                return Ok(i);
-            }
-        }
-        Err(VulkanError::MemoryAllocation("Failed to find suitable memory type".to_string()).into())
     }
 }
 

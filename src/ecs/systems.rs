@@ -69,7 +69,7 @@ pub fn create_triangle_mesh(world: &mut World, resources: &mut Resources) -> Res
 /// * `resources` - The resources container including the Vulkan renderer
 #[allow(dead_code)]
 pub fn render_system(world: &mut World, resources: &mut Resources) {
-    let mut vulkan_renderer = match resources.get_mut::<crate::vulkan::renderer::VulkanRenderer>() {
+    let _vulkan_renderer = match resources.get_mut::<crate::vulkan::renderer::VulkanRenderer>() {
         Some(renderer) => renderer,
         None => {
             warn!("VulkanRenderer resource not found in render system");
@@ -92,11 +92,11 @@ pub fn render_system(world: &mut World, resources: &mut Resources) {
     // Update the renderer with the latest mesh data
     // For now, we'll just use the first mesh
     if let Some((mesh, transform, _renderable)) = render_data.first() {
-        debug!("Updating renderer with mesh data ({} vertices, {} indices)",
+        debug!("Rendering mesh data ({} vertices, {} indices)",
                mesh.vertices.len(), mesh.indices.len());
         
-        vulkan_renderer.update_vertices(&mesh.vertices);
-        vulkan_renderer.update_indices(&mesh.indices);
+        // Note: The renderer now uses SDF shaders instead of traditional vertex rendering
+        // The mesh data is logged for debugging but not directly used by the renderer
         
         // Log transform information for debugging
         debug!("Entity transform: position={:?}, rotation={:?}, scale={:?}",

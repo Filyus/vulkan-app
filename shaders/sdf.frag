@@ -155,9 +155,31 @@ layout(push_constant) uniform PushConstants {
     vec2 uResolution;
     float uTime;
     float uAspectRatio;
+    // Toolbar overlay data
+    vec4 toolbarColor;
+    vec2 toolbarPosition;
+    vec2 toolbarSize;
+    int showToolbar;
 } pushConstants;
 
 void main() {
+    // Check if we should render toolbar overlay
+    if (pushConstants.showToolbar == 1) {
+        // Convert fragment coordinates to screen space
+        vec2 screenPos = fragTexCoord * pushConstants.uResolution;
+        
+        // Check if fragment is within toolbar bounds
+        if (screenPos.x >= pushConstants.toolbarPosition.x &&
+            screenPos.x <= pushConstants.toolbarPosition.x + pushConstants.toolbarSize.x &&
+            screenPos.y >= pushConstants.toolbarPosition.y &&
+            screenPos.y <= pushConstants.toolbarPosition.y + pushConstants.toolbarSize.y) {
+            
+            // Render toolbar color
+            outColor = pushConstants.toolbarColor;
+            return;
+        }
+    }
+    
     // Initialize shapes (temporary - will come from ECS)
     shapes[0] = SDFShapeData(SPHERE, vec3(0.0, 0.0, 0.0), 0.5, vec4(0.0), vec3(1.0, 0.0, 0.0), 0.0, 0.5, 0.0, 0);
     shapes[1] = SDFShapeData(BOX, vec3(-1.5, 0.0, 0.0), 0.3, vec4(0.0), vec3(0.0, 1.0, 0.0), 0.0, 0.5, 0.0, 0);

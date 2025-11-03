@@ -149,14 +149,6 @@ pub mod ecs {
 
 /// Shader configuration
 pub mod shader {
-    /// Vertex shader file path
-    #[allow(dead_code)] // For future shader management
-    pub const VERTEX_SHADER_PATH: &str = "shaders/triangle.vert";
-    
-    /// Fragment shader file path
-    #[allow(dead_code)] // For future shader management
-    pub const FRAGMENT_SHADER_PATH: &str = "shaders/triangle.frag";
-    
     /// Shader entry point name
     pub const ENTRY_POINT: &[u8] = b"main\0";
 }
@@ -225,8 +217,6 @@ mod tests {
 
     #[test]
     fn test_shader_config_constants() {
-        assert_eq!(shader::VERTEX_SHADER_PATH, "shaders/triangle.vert");
-        assert_eq!(shader::FRAGMENT_SHADER_PATH, "shaders/triangle.frag");
         assert_eq!(shader::ENTRY_POINT, b"main\0");
     }
 

@@ -17,6 +17,9 @@ pub enum AppError {
     /// ECS-related errors
     ECS(EcsError),
     
+    /// HUD-related errors
+    HUD(String),
+    
     /// IO-related errors
     IO(std::io::Error),
     
@@ -30,6 +33,7 @@ impl fmt::Display for AppError {
             AppError::Vulkan(err) => write!(f, "Vulkan error: {}", err),
             AppError::Window(err) => write!(f, "Window error: {}", err),
             AppError::ECS(err) => write!(f, "ECS error: {}", err),
+            AppError::HUD(msg) => write!(f, "HUD error: {}", msg),
             AppError::IO(err) => write!(f, "IO error: {}", err),
             AppError::Generic(msg) => write!(f, "Error: {}", msg),
         }

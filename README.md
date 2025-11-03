@@ -8,6 +8,8 @@ A comprehensive Vulkan application written in Rust featuring Entity Component Sy
 - **Multiple SDF Shapes**: Support for spheres, boxes, and planes with ray marching
 - **ECS Architecture**: Entity Component System for scalable game/application development
 - **Dynamic Lighting**: Phong lighting model with multiple lights and shadows
+- **Interactive HUD System**: Professional toolbar with hoverable and clickable buttons
+- **Enhanced Button Interactions**: Smooth hover effects, visual feedback, and consistent color themes
 - **Real-time Updates**: Dynamic aspect ratio handling and window resize support
 - **Windowed Fullscreen**: Smooth fullscreen transitions with F11 toggle
 - **Proper Camera System**: Advanced camera module with correct aspect ratio and projection matrix handling
@@ -56,6 +58,12 @@ cargo test
 
 - **Main Application** (`src/main.rs`): Application entry point with event loop and window management
 - **ECS System** (`src/ecs/`): Entity Component System with components, systems, and world management
+- **HUD System** (`src/hud/`): Interactive heads-up display with:
+  - Blender-inspired toolbar interface
+  - Hoverable and clickable buttons with smooth animations
+  - Enhanced visual feedback and consistent color themes
+  - ImGui integration with Vulkan backend
+  - Real-time mouse input handling and state management
 - **Vulkan Renderer** (`src/vulkan/`): Complete Vulkan implementation including:
   - Instance and device management
   - Swapchain creation and management
@@ -86,6 +94,11 @@ src/
 │   ├── swapchain.rs    # Swapchain handling
 │   ├── pipeline.rs     # Graphics pipeline
 │   └── renderer.rs     # Main renderer
+└── hud/                 # HUD and UI system
+│   ├── mod.rs          # HUD system integration and management
+│   ├── toolbar.rs      # Interactive toolbar with buttons
+│   ├── imgui_vulkan_backend.rs  # ImGui Vulkan rendering backend
+│   └── vulkan_renderer.rs      # Simplified ImGui renderer
 └── camera.rs           # Camera system with aspect ratio handling
 └── shaders/             # GLSL shader sources
     ├── sdf.vert        # SDF vertex shader (fullscreen quad)
@@ -105,6 +118,9 @@ src/
 - `log` - Logging framework
 - `fern` - Logging implementation
 - `chrono` - Time utilities for logging
+- `imgui` - Immediate mode GUI library
+- `imgui-winit-support` - Winit integration for ImGui
+- `imgui-glow-renderer` - OpenGL renderer for ImGui (fallback)
 
 ## Configuration
 
@@ -184,7 +200,7 @@ If the app fails to run with validation layer errors, it will automatically fall
 
 ## Contributing
 
-This project demonstrates advanced SDF rendering techniques with ECS architecture. Key areas for contribution:
+This project demonstrates advanced SDF rendering techniques with ECS architecture and modern UI systems. Key areas for contribution:
 
 - Additional SDF primitives (torus, cylinder, complex shapes)
 - Advanced lighting models (PBR, global illumination)
@@ -193,6 +209,9 @@ This project demonstrates advanced SDF rendering techniques with ECS architectur
 - Material systems and texture support
 - Cross-platform improvements
 - Additional debug and profiling tools
+- Enhanced HUD features (more toolbar buttons, context menus, panels)
+- Advanced UI interactions (drag-and-drop, keyboard shortcuts, customizable layouts)
+- ImGui integration improvements and additional UI components
 
 ## License
 
