@@ -1,5 +1,5 @@
 use legion::{Resources, Schedule, World};
-use crate::ecs::systems::{create_triangle_mesh, render_system, transform_update_system};
+use crate::ecs::systems::{create_sdf_entities, sdf_render_system, transform_update_system};
 use crate::vulkan::renderer::VulkanRenderer;
 use crate::error::{Result, AppError, EcsError};
 use log::info;
@@ -34,17 +34,17 @@ impl ECSWorld {
         // Insert the Vulkan renderer as a resource
         resources.insert(vulkan_renderer);
         
-        // Insert a vector to track triangle entities
+        // Insert a vector to track SDF entities
         resources.insert(Vec::<legion::Entity>::new());
         
-        // Create the triangle mesh once during initialization
-        create_triangle_mesh(&mut world, &mut resources)
-            .map_err(|e| EcsError::EntityCreation(format!("Failed to create triangle mesh: {}", e)))?;
+        // Create SDF entities once during initialization
+        create_sdf_entities(&mut world, &mut resources)
+            .map_err(|e| EcsError::EntityCreation(format!("Failed to create SDF entities: {}", e)))?;
         
         // Create the schedule with systems that run every frame
         let schedule = Schedule::builder()
             .add_thread_local_fn(transform_update_system)
-            .add_thread_local_fn(render_system)
+            .add_thread_local_fn(sdf_render_system)
             .build();
         
         info!("ECS world created successfully");
@@ -78,6 +78,25 @@ impl ECSWorld {
         vulkan_renderer.draw_frame()
             .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                 format!("Failed to draw frame: {}", e)
+            )))
+    }
+    
+    /// Handle window resize event
+    ///
+    /// # Arguments
+    /// * `new_width` - The new window width
+    /// * `new_height` - The new window height
+    ///
+    /// # Returns
+    /// * Ok(()) if resize was handled successfully
+    /// * Err if resize handling failed
+    pub fn handle_window_resize(&mut self, new_width: u32, new_height: u32) -> Result<()> {
+        let mut vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+            .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
+        
+        vulkan_renderer.handle_resize(new_width, new_height)
+            .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
+                format!("Failed to handle window resize: {}", e)
             )))
     }
     

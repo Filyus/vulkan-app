@@ -49,6 +49,76 @@ pub struct Color {
     pub b: f32,
 }
 
+// SDF Components
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SDFShapeType {
+    Sphere,
+    Box,
+    #[allow(dead_code)]
+    Plane,
+    #[allow(dead_code)]
+    Torus,
+    #[allow(dead_code)]
+    Cylinder,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SDFShape {
+    pub shape_type: SDFShapeType,
+    pub size: f32,
+    pub params: [f32; 4], // Additional parameters for complex shapes
+}
+
+impl Default for SDFShape {
+    fn default() -> Self {
+        Self {
+            shape_type: SDFShapeType::Sphere,
+            size: 1.0,
+            params: [0.0; 4],
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SDFMaterial {
+    pub color: cgmath::Vector3<f32>,
+    pub metallic: f32,
+    pub roughness: f32,
+    pub emission: f32,
+}
+
+impl Default for SDFMaterial {
+    fn default() -> Self {
+        Self {
+            color: cgmath::Vector3::new(1.0, 1.0, 1.0),
+            metallic: 0.0,
+            roughness: 0.5,
+            emission: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SDFRenderable;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SDFLight {
+    pub position: cgmath::Vector3<f32>,
+    pub color: cgmath::Vector3<f32>,
+    pub intensity: f32,
+}
+
+impl Default for SDFLight {
+    fn default() -> Self {
+        Self {
+            position: cgmath::Vector3::new(2.0, 2.0, 2.0),
+            color: cgmath::Vector3::new(1.0, 1.0, 1.0),
+            intensity: 1.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

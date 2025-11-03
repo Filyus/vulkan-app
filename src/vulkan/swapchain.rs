@@ -266,6 +266,124 @@ impl VulkanSwapchain {
         debug!("Image views created successfully");
         Ok(image_views)
     }
+    
+    /// Recreate the swapchain with new dimensions
+    ///
+    /// # Arguments
+    /// * `device` - The Vulkan device
+    /// * `instance` - The Vulkan instance
+    /// * `surface` - The Vulkan surface
+    /// * `new_width` - The new window width
+    /// * `new_height` - The new window height
+    ///
+    /// # Returns
+    /// * Ok(()) if recreation was successful
+    /// * Err if recreation failed
+    pub fn recreate(&mut self, device: &Device, instance: &Instance, surface: vk::SurfaceKHR, new_width: u32, new_height: u32) -> Result<()> {
+        info!("Recreating swapchain with new dimensions {}x{}", new_width, new_height);
+        
+        // Clean up old image views
+        unsafe {
+            for &image_view in &self.swapchain_image_views {
+                device.destroy_image_view(image_view, None);
+            }
+        }
+        self.swapchain_image_views.clear();
+        
+        // Create new swapchain with old swapchain as reference
+        let (new_swapchain, new_swapchain_images, new_swapchain_image_format, new_swapchain_extent) =
+            Self::create_swapchain_with_old(
+                instance,
+                device,
+                surface,
+                self.swapchain,
+                &self.swapchain_loader,
+                new_width,
+                new_height
+            )?;
+        
+        // Update swapchain data
+        self.swapchain = new_swapchain;
+        self._swapchain_images = new_swapchain_images;
+        self.swapchain_image_format = new_swapchain_image_format;
+        self.swapchain_extent = new_swapchain_extent;
+        
+        // Create new image views
+        self.swapchain_image_views = Self::create_swapchain_image_views(
+            device,
+            &self._swapchain_images,
+            self.swapchain_image_format
+        )?;
+        
+        info!("Swapchain recreated successfully");
+        Ok(())
+    }
+    
+    /// Create a new swapchain using an old swapchain as reference
+    ///
+    /// # Arguments
+    /// * `instance` - The Vulkan instance
+    /// * `device` - The Vulkan device
+    /// * `surface` - The Vulkan surface
+    /// * `old_swapchain` - The old swapchain to use as reference
+    /// * `swapchain_loader` - The swapchain loader
+    /// * `new_width` - The new window width
+    /// * `new_height` - The new window height
+    ///
+    /// # Returns
+    /// A tuple of (swapchain, swapchain_images, swapchain_image_format, swapchain_extent)
+    ///
+    /// # Errors
+    /// Returns an error if swapchain creation fails
+    fn create_swapchain_with_old(
+        _instance: &Instance,
+        _device: &Device,
+        surface: vk::SurfaceKHR,
+        old_swapchain: vk::SwapchainKHR,
+        swapchain_loader: &ash::extensions::khr::Swapchain,
+        new_width: u32,
+        new_height: u32,
+    ) -> Result<(vk::SwapchainKHR, Vec<vk::Image>, vk::Format, vk::Extent2D)> {
+        debug!("Creating new swapchain with old swapchain reference");
+        
+        // Get surface capabilities (this would need the surface and physical device)
+        // For now, we'll use a simplified approach
+        let extent = vk::Extent2D {
+            width: new_width,
+            height: new_height,
+        };
+        
+        let format = vk::Format::B8G8R8A8_SRGB;
+        let image_count = 2; // Use double buffering
+        
+        let create_info = vk::SwapchainCreateInfoKHR::builder()
+            .surface(surface)
+            .old_swapchain(old_swapchain)
+            .min_image_count(image_count)
+            .image_format(format)
+            .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
+            .image_extent(extent)
+            .image_array_layers(1)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+            .pre_transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
+            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+            .present_mode(vk::PresentModeKHR::FIFO)
+            .clipped(true)
+            .image_sharing_mode(vk::SharingMode::EXCLUSIVE);
+        
+        let swapchain = unsafe {
+            swapchain_loader.create_swapchain(&create_info, None)
+                .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to recreate swapchain: {:?}", e)))?
+        };
+        
+        let swapchain_images = unsafe {
+            swapchain_loader.get_swapchain_images(swapchain)
+                .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to get recreated swapchain images: {:?}", e)))?
+        };
+        
+        debug!("New swapchain created successfully");
+        Ok((swapchain, swapchain_images, format, extent))
+    }
 }
 
 impl Drop for VulkanSwapchain {

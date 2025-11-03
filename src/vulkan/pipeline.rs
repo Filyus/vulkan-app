@@ -121,9 +121,9 @@ impl VulkanPipeline {
     ) -> Result<(vk::PipelineLayout, vk::Pipeline)> {
         debug!("Creating graphics pipeline");
         
-        // Load shaders
-        let vert_shader_code = include_bytes!("../../shaders/triangle.vert.spv");
-        let frag_shader_code = include_bytes!("../../shaders/triangle.frag.spv");
+        // Load SDF shaders
+        let vert_shader_code = include_bytes!("../../shaders/sdf.vert.spv");
+        let frag_shader_code = include_bytes!("../../shaders/sdf.frag.spv");
         
         if vert_shader_code.is_empty() || frag_shader_code.is_empty() {
             return Err(VulkanError::ShaderCompilation(
@@ -157,29 +157,10 @@ impl VulkanPipeline {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
         
-        // Viewport and scissor
-        let viewport = vk::Viewport {
-            x: 0.0,
-            y: 0.0,
-            width: config::window::DEFAULT_WIDTH as f32,
-            height: config::window::DEFAULT_HEIGHT as f32,
-            min_depth: 0.0,
-            max_depth: 1.0,
-        };
-        
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D {
-                width: config::window::DEFAULT_WIDTH,
-                height: config::window::DEFAULT_HEIGHT,
-            },
-        };
-        
-        let viewports = [viewport];
-        let scissors = [scissor];
+        // Dynamic viewport and scissor (will be set at command buffer time)
         let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-            .viewports(&viewports)
-            .scissors(&scissors);
+            .viewport_count(1)
+            .scissor_count(1);
         
         // Rasterizer
         let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
@@ -206,12 +187,26 @@ impl VulkanPipeline {
         let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
             .attachments(&color_blend_attachments);
         
-        // Pipeline layout
-        let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder();
+        // Push constant range for window data
+        let push_constant_range = vk::PushConstantRange {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: 16, // vec2 + float + float = 4 + 4 + 4 + 4 = 16 bytes
+        };
+        let push_constant_ranges = [push_constant_range];
+        
+        // Pipeline layout with push constants
+        let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
+            .push_constant_ranges(&push_constant_ranges);
         let pipeline_layout = unsafe {
             device.create_pipeline_layout(&pipeline_layout_info, None)
                 .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create pipeline layout: {:?}", e)))?
         };
+        
+        // Dynamic states
+        let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+        let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
+            .dynamic_states(&dynamic_states);
         
         // Graphics pipeline
         let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
@@ -222,6 +217,7 @@ impl VulkanPipeline {
             .rasterization_state(&rasterizer)
             .multisample_state(&multisampling)
             .color_blend_state(&color_blending)
+            .dynamic_state(&dynamic_state)
             .layout(pipeline_layout)
             .render_pass(render_pass)
             .subpass(0);
