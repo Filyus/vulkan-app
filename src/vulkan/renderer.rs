@@ -26,7 +26,9 @@ pub struct VulkanRenderer {
     // Things that depend on others must be declared first.
     
     // ECS-related fields (cleaned up first)
+    #[allow(dead_code)]
     vertices: Vec<Vertex>,
+    #[allow(dead_code)]
     indices: Vec<u32>,
     _vertex_buffer: vk::Buffer,
     _vertex_buffer_memory: vk::DeviceMemory,
@@ -64,6 +66,9 @@ pub struct VulkanRenderer {
     
     // Runtime state
     current_frame: usize,
+    
+    // For dynamic push constant updates
+    time: f32,
 }
 
 impl VulkanRenderer {
@@ -107,6 +112,7 @@ impl VulkanRenderer {
             &device.device,
             command_pool,
             pipeline.graphics_pipeline,
+            pipeline.pipeline_layout,
             pipeline.render_pass,
             &framebuffers,
             swapchain.swapchain_extent
@@ -159,6 +165,7 @@ impl VulkanRenderer {
             device,
             instance,
             current_frame: 0,
+            time: 0.0,
         })
     }
     
@@ -297,6 +304,7 @@ impl VulkanRenderer {
         device: &Device,
         command_pool: vk::CommandPool,
         graphics_pipeline: vk::Pipeline,
+        pipeline_layout: vk::PipelineLayout,
         render_pass: vk::RenderPass,
         framebuffers: &[vk::Framebuffer],
         extent: vk::Extent2D,
@@ -338,7 +346,41 @@ impl VulkanRenderer {
             unsafe {
                 device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, graphics_pipeline);
-                device.cmd_draw(command_buffer, 3, 1, 0, 0);
+                
+                // Set dynamic viewport and scissor
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                
+                // Push window data as push constants
+                let aspect_ratio = extent.width as f32 / extent.height as f32;
+                let push_constants = [
+                    extent.width as f32,      // uResolution.x
+                    extent.height as f32,     // uResolution.y
+                    0.0 as f32,               // uTime (placeholder)
+                    aspect_ratio,             // uAspectRatio
+                ];
+                device.cmd_push_constants(
+                    command_buffer,
+                    pipeline_layout,
+                    vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    bytemuck::bytes_of(&push_constants)
+                );
+                
+                device.cmd_draw(command_buffer, 6, 1, 0, 0); // Draw 6 vertices for fullscreen quad
                 device.cmd_end_render_pass(command_buffer);
                 device.end_command_buffer(command_buffer)
                     .map_err(|e| VulkanError::CommandBuffer(format!("Failed to end command buffer {}: {:?}", i, e)))?;
@@ -404,6 +446,9 @@ impl VulkanRenderer {
     pub fn draw_frame(&mut self) -> Result<()> {
         debug!("Drawing frame {}", self.current_frame);
         
+        // Update time for animation
+        self.time += 0.016; // Approximate 60 FPS
+        
         unsafe {
             // Wait for the previous frame to finish
             self.device.device.wait_for_fences(&[self.in_flight_fences[self.current_frame]], true, u64::MAX)
@@ -417,6 +462,74 @@ impl VulkanRenderer {
                 vk::Fence::null()
             ).map_err(|e| VulkanError::Rendering(format!("Failed to acquire next image: {:?}", e)))?;
             
+            // Update push constants with current aspect ratio and time
+            let extent = self.swapchain.swapchain_extent;
+            let aspect_ratio = extent.width as f32 / extent.height as f32;
+            let push_constants = [
+                extent.width as f32,      // uResolution.x
+                extent.height as f32,     // uResolution.y
+                self.time,                // uTime
+                aspect_ratio,             // uAspectRatio
+            ];
+            
+            // Record command buffer with updated push constants
+            let command_buffer = self.command_buffers[image_index as usize];
+            
+            // Reset and rerecord command buffer
+            self.device.device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to reset command buffer: {:?}", e)))?;
+            
+            let begin_info = vk::CommandBufferBeginInfo::builder();
+            self.device.device.begin_command_buffer(command_buffer, &begin_info)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer: {:?}", e)))?;
+            
+            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                .render_pass(self.pipeline.render_pass)
+                .framebuffer(self.framebuffers[image_index as usize])
+                .render_area(vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                })
+                .clear_values(&[vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: config::rendering::CLEAR_COLOR,
+                    },
+                }]);
+            
+            self.device.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.graphics_pipeline);
+            
+            // Set dynamic viewport and scissor
+            let viewport = vk::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: extent.width as f32,
+                height: extent.height as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            };
+            self.device.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+            
+            let scissor = vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            };
+            self.device.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+            
+            // Push updated constants
+            self.device.device.cmd_push_constants(
+                command_buffer,
+                self.pipeline.pipeline_layout,
+                vk::ShaderStageFlags::FRAGMENT,
+                0,
+                bytemuck::bytes_of(&push_constants)
+            );
+            
+            self.device.device.cmd_draw(command_buffer, 6, 1, 0, 0); // Draw 6 vertices for fullscreen quad
+            self.device.device.cmd_end_render_pass(command_buffer);
+            self.device.device.end_command_buffer(command_buffer)
+                .map_err(|e| VulkanError::CommandBuffer(format!("Failed to end command buffer: {:?}", e)))?;
+            
             // Reset the fence for this frame
             self.device.device.reset_fences(&[self.in_flight_fences[self.current_frame]])
                 .map_err(|e| VulkanError::Rendering(format!("Failed to reset fences: {:?}", e)))?;
@@ -426,7 +539,7 @@ impl VulkanRenderer {
             let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
             let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
             
-            let command_buffers = [self.command_buffers[image_index as usize]];
+            let command_buffers = [command_buffer];
             let submit_info = vk::SubmitInfo::builder()
                 .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
@@ -461,16 +574,99 @@ impl VulkanRenderer {
         Ok(())
     }
     
+    #[allow(dead_code)]
     pub fn update_vertices(&mut self, vertices: &[Vertex]) {
         self.vertices = vertices.to_vec();
         // In a real implementation, we would update the vertex buffer here
         // For now, we'll just store the data
     }
     
+    #[allow(dead_code)]
     pub fn update_indices(&mut self, indices: &[u32]) {
         self.indices = indices.to_vec();
         // In a real implementation, we would update the index buffer here
         // For now, we'll just store the data
+    }
+    
+    /// Handle window resize
+    ///
+    /// # Arguments
+    /// * `new_width` - The new window width
+    /// * `new_height` - The new window height
+    ///
+    /// # Returns
+    /// * Ok(()) if resize was handled successfully
+    /// * Err if resize handling failed
+    pub fn handle_resize(&mut self, new_width: u32, new_height: u32) -> Result<()> {
+        info!("Handling window resize to {}x{}", new_width, new_height);
+        
+        // Wait for device to be idle before recreation
+        unsafe {
+            self.device.device.device_wait_idle()
+                .map_err(|e| VulkanError::Rendering(format!("Failed to wait for device idle during resize: {:?}", e)))?;
+        }
+        
+        // Recreate swapchain
+        self.swapchain.recreate(&self.device.device, &self.instance.instance, self.surface.surface, new_width, new_height)
+            .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to recreate swapchain: {}", e)))?;
+        
+        // Recreate framebuffers
+        self.recreate_framebuffers()?;
+        
+        // Recreate command buffers
+        self.recreate_command_buffers()?;
+        
+        info!("Window resize handled successfully");
+        Ok(())
+    }
+    
+    /// Recreate framebuffers after resize
+    ///
+    /// # Returns
+    /// * Ok(()) if framebuffers were recreated successfully
+    /// * Err if framebuffer recreation failed
+    fn recreate_framebuffers(&mut self) -> Result<()> {
+        // Clean up old framebuffers
+        unsafe {
+            for &framebuffer in &self.framebuffers {
+                self.device.device.destroy_framebuffer(framebuffer, None);
+            }
+        }
+        
+        // Create new framebuffers
+        self.framebuffers = Self::create_framebuffers(
+            &self.device.device,
+            self.pipeline.render_pass,
+            &self.swapchain.swapchain_image_views,
+            self.swapchain.swapchain_extent
+        )?;
+        
+        Ok(())
+    }
+    
+    /// Recreate command buffers after resize
+    ///
+    /// # Returns
+    /// * Ok(()) if command buffers were recreated successfully
+    /// * Err if command buffer recreation failed
+    fn recreate_command_buffers(&mut self) -> Result<()> {
+        // Free old command buffers
+        unsafe {
+            self.device.device.free_command_buffers(self.command_pool, &self.command_buffers);
+        }
+        
+        // Create new command buffers
+        self.command_buffers = Self::create_command_buffers(
+            &self.device.device,
+            self.command_pool,
+            self.pipeline.graphics_pipeline,
+            self.pipeline.pipeline_layout,
+            self.pipeline.render_pass,
+            &self.framebuffers,
+            self.swapchain.swapchain_extent
+        )?;
+        
+        Ok(())
     }
     
     #[allow(dead_code)]

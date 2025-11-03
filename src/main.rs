@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     }
     
     info!("Starting Vulkan App - ECS");
-    info!("This app renders a colored triangle using Vulkan with ECS architecture.");
+    info!("This app renders SDF shapes using Vulkan with ECS architecture.");
     
     // Initialize event loop
     let event_loop = EventLoop::new();
@@ -63,6 +63,16 @@ fn main() -> Result<()> {
             } => {
                 info!("Window close requested, exiting");
                 *control_flow = ControlFlow::Exit;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(new_size),
+                ..
+            } => {
+                info!("Window resized to: {}x{}", new_size.width, new_size.height);
+                // Handle window resize
+                if let Err(e) = ecs_world.handle_window_resize(new_size.width, new_size.height) {
+                    error!("Error during window resize: {}", e);
+                }
             }
             Event::MainEventsCleared => {
                 // Update ECS systems

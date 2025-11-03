@@ -1,5 +1,8 @@
 use legion::{World, Resources, IntoQuery};
-use crate::ecs::components::{Transform, Mesh, Renderable, Triangle, Color, Vertex};
+use crate::ecs::components::{
+    Transform, Mesh, Renderable, Triangle, Color, Vertex,
+    SDFShape, SDFMaterial, SDFRenderable, SDFLight, SDFShapeType
+};
 use crate::error::{Result, EcsError};
 use cgmath::Vector3;
 use log::{debug, info, warn};
@@ -13,6 +16,7 @@ use log::{debug, info, warn};
 /// # Returns
 /// * Ok(()) if the triangle was created successfully
 /// * Err if creation failed
+#[allow(dead_code)]
 pub fn create_triangle_mesh(world: &mut World, resources: &mut Resources) -> Result<()> {
     let mut triangle_entities = resources.get_mut::<Vec<legion::Entity>>()
         .ok_or_else(|| EcsError::ResourceAccess("Triangle entities vector not found in resources".to_string()))?;
@@ -63,6 +67,7 @@ pub fn create_triangle_mesh(world: &mut World, resources: &mut Resources) -> Res
 /// # Arguments
 /// * `world` - The ECS world containing entities
 /// * `resources` - The resources container including the Vulkan renderer
+#[allow(dead_code)]
 pub fn render_system(world: &mut World, resources: &mut Resources) {
     let mut vulkan_renderer = match resources.get_mut::<crate::vulkan::renderer::VulkanRenderer>() {
         Some(renderer) => renderer,
@@ -136,6 +141,146 @@ pub fn transform_update_system(world: &mut World, _resources: &mut Resources) {
     
     if entity_count > 0 {
         debug!("Updated transforms for {} entities", entity_count);
+    }
+}
+
+/// Create SDF entities in the ECS world
+///
+/// # Arguments
+/// * `world` - The ECS world to add entities to
+/// * `resources` - The resources container
+///
+/// # Returns
+/// * Ok(()) if the SDF entities were created successfully
+/// * Err if creation failed
+pub fn create_sdf_entities(world: &mut World, resources: &mut Resources) -> Result<()> {
+    let mut sdf_entities = resources.get_mut::<Vec<legion::Entity>>()
+        .ok_or_else(|| EcsError::ResourceAccess("SDF entities vector not found in resources".to_string()))?;
+    
+    // Create a red sphere at center
+    let sphere_entity = world.push((
+        SDFShape {
+            shape_type: SDFShapeType::Sphere,
+            size: 0.5,
+            params: [0.0; 4],
+        },
+        SDFMaterial {
+            color: Vector3::new(1.0, 0.0, 0.0),
+            metallic: 0.0,
+            roughness: 0.5,
+            emission: 0.0,
+        },
+        Transform {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Vector3::new(0.0, 0.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        },
+        SDFRenderable,
+    ));
+    
+    // Create a green box on the left
+    let box_entity = world.push((
+        SDFShape {
+            shape_type: SDFShapeType::Box,
+            size: 0.3,
+            params: [0.0; 4],
+        },
+        SDFMaterial {
+            color: Vector3::new(0.0, 1.0, 0.0),
+            metallic: 0.1,
+            roughness: 0.7,
+            emission: 0.0,
+        },
+        Transform {
+            position: Vector3::new(-1.5, 0.0, 0.0),
+            rotation: Vector3::new(0.0, 0.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        },
+        SDFRenderable,
+    ));
+    
+    // Create a blue sphere on the right
+    let sphere2_entity = world.push((
+        SDFShape {
+            shape_type: SDFShapeType::Sphere,
+            size: 0.4,
+            params: [0.0; 4],
+        },
+        SDFMaterial {
+            color: Vector3::new(0.0, 0.0, 1.0),
+            metallic: 0.3,
+            roughness: 0.3,
+            emission: 0.0,
+        },
+        Transform {
+            position: Vector3::new(1.5, 0.0, 0.0),
+            rotation: Vector3::new(0.0, 0.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        },
+        SDFRenderable,
+    ));
+    
+    // Create a light
+    let light_entity = world.push((
+        SDFLight {
+            position: Vector3::new(2.0, 2.0, 2.0),
+            color: Vector3::new(1.0, 1.0, 1.0),
+            intensity: 1.0,
+        },
+    ));
+    
+    sdf_entities.push(sphere_entity);
+    sdf_entities.push(box_entity);
+    sdf_entities.push(sphere2_entity);
+    sdf_entities.push(light_entity);
+    
+    info!("Created SDF entities: sphere, box, sphere, and light");
+    debug!("SDF entity IDs: sphere={:?}, box={:?}, sphere2={:?}, light={:?}",
+           sphere_entity, box_entity, sphere2_entity, light_entity);
+    
+    Ok(())
+}
+
+/// System that handles SDF rendering
+///
+/// This system collects SDF render data from entities and updates the Vulkan renderer
+///
+/// # Arguments
+/// * `world` - The ECS world containing entities
+/// * `resources` - The resources container including the Vulkan renderer
+pub fn sdf_render_system(world: &mut World, resources: &mut Resources) {
+    let _vulkan_renderer = match resources.get_mut::<crate::vulkan::renderer::VulkanRenderer>() {
+        Some(renderer) => renderer,
+        None => {
+            warn!("VulkanRenderer resource not found in SDF render system");
+            return;
+        }
+    };
+    
+    let mut sdf_query = <(&SDFShape, &SDFMaterial, &Transform)>::query();
+    let mut light_query = <&SDFLight>::query();
+    
+    // Collect all SDF renderable entities
+    let sdf_entities: Vec<_> = sdf_query.iter(world).collect();
+    let lights: Vec<_> = light_query.iter(world).collect();
+    
+    if sdf_entities.is_empty() {
+        debug!("No SDF renderable entities found");
+        return;
+    }
+    
+    debug!("Rendering {} SDF entities with {} lights", sdf_entities.len(), lights.len());
+    
+    // For now, the SDF data is hardcoded in the shader
+    // In a future implementation, we would update uniform buffers with ECS data
+    for (shape, material, transform) in sdf_entities {
+        debug!("SDF entity: shape={:?}, size={}, position={:?}, color={:?}",
+               shape.shape_type, shape.size, transform.position, material.color);
+    }
+    
+    for light in lights {
+        debug!("Light: position={:?}, color={:?}, intensity={}",
+               light.position, light.color, light.intensity);
     }
 }
 
