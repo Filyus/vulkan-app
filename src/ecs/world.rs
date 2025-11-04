@@ -1,9 +1,12 @@
 use legion::{Resources, Schedule, World};
+use std::sync::{Arc, Mutex};
 use crate::ecs::systems::{create_sdf_entities, sdf_render_system, transform_update_system};
 use crate::vulkan::renderer::VulkanRenderer;
+use crate::vulkan::shader_compiler::ShaderCompiler;
+use crate::vulkan::shader_watcher::{HotReloadManager, HotReloadConfig};
 use crate::error::{Result, AppError, EcsError};
 use crate::hud::{HUD, HUDConfig, ToolbarPosition};
-use log::{info, error, debug};
+use log::{info, error, debug, warn};
 use winit::window::Window;
 use ash::vk;
 
@@ -20,6 +23,9 @@ pub struct ECSWorld {
     
     /// HUD system for toolbar and UI
     pub hud: Option<HUD>,
+    
+    /// Hot reload manager for shader changes
+    pub hot_reload_manager: Option<HotReloadManager>,
 }
 
 impl ECSWorld {
@@ -37,10 +43,11 @@ impl ECSWorld {
         info!("=== ECSWorld::new() STARTED ===");
         let mut world = World::default();
         let mut resources = Resources::default();
-        
+
         info!("Inserting Vulkan renderer as resource");
-        // Insert the Vulkan renderer as a resource
-        resources.insert(vulkan_renderer);
+        // Insert the Vulkan renderer as an Arc<Mutex> resource for shared mutable access
+        let vulkan_renderer_arc = Arc::new(Mutex::new(vulkan_renderer));
+        resources.insert(vulkan_renderer_arc);
         
         info!("Inserting SDF entity tracker vector");
         // Insert a vector to track SDF entities
@@ -69,6 +76,7 @@ impl ECSWorld {
             resources,
             schedule,
             hud: None,
+            hot_reload_manager: None,
         })
     }
     
@@ -85,24 +93,29 @@ impl ECSWorld {
         window: &Window,
     ) -> Result<()> {
         info!("=== HUD INITIALIZATION STARTED ===");
-        
+
         info!("Getting VulkanRenderer from resources");
-        let vulkan_renderer = self.resources.get::<VulkanRenderer>()
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
             .ok_or_else(|| {
                 error!("VulkanRenderer not found in ECS resources");
                 EcsError::ResourceAccess("VulkanRenderer not found for HUD initialization".to_string())
             })?;
-        
+
         info!("Creating HUD config");
         let config = HUDConfig::default();
-        let render_pass = vulkan_renderer.pipeline.render_pass;
-        let device = &vulkan_renderer.device;
-        
+
+        // Lock the renderer to access its data
+        let renderer_guard = vulkan_renderer.lock().unwrap();
+        let pipeline_guard = renderer_guard.pipeline.lock().unwrap();
+        let render_pass = pipeline_guard.render_pass;
+        let device = &renderer_guard.device;
+        drop(pipeline_guard); // Release pipeline lock
+
         info!("Creating HUD instance with window, device, and render pass");
         let mut hud = HUD::new(
             window,
             device,
-            &*vulkan_renderer,
+            &*renderer_guard,
             render_pass,
             config,
         ).map_err(|e| {
@@ -124,6 +137,45 @@ impl ECSWorld {
         info!("HUD system initialized successfully with font texture");
         debug!("HUD stored in ECS world at: {:p}", self.hud.as_ref().unwrap());
         info!("=== HUD INITIALIZATION COMPLETED ===");
+        Ok(())
+    }
+    
+    /// Initialize hot reload manager
+    ///
+    /// # Returns
+    /// * Ok(()) if hot reload initialization succeeded
+    /// * Err if hot reload initialization failed
+    pub fn init_hot_reload(&mut self) -> Result<()> {
+        info!("=== HOT RELOAD INITIALIZATION STARTED ===");
+
+        // Get Vulkan renderer to access pipeline
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
+            .ok_or_else(|| {
+                error!("VulkanRenderer not found in ECS resources");
+                EcsError::ResourceAccess("VulkanRenderer not found for hot reload initialization".to_string())
+            })?;
+
+        // Create shader compiler
+        let shader_compiler = Arc::new(Mutex::new(ShaderCompiler::new()?));
+
+        // Create hot reload config
+        let config = HotReloadConfig::default();
+
+        // Create hot reload manager
+        let mut hot_reload_manager = HotReloadManager::new(config, Arc::clone(&shader_compiler));
+
+        // Initialize hot reload manager with pipeline - SHARE the same Arc!
+        let renderer_guard = vulkan_renderer.lock().unwrap();
+        let pipeline_arc = Arc::clone(&renderer_guard.pipeline);
+        drop(renderer_guard); // Release lock before setting callback
+
+        hot_reload_manager.initialize(pipeline_arc)?;
+
+        // Store hot reload manager
+        self.hot_reload_manager = Some(hot_reload_manager);
+
+        info!("Hot reload manager initialized successfully with pipeline integration and immediate command buffer updates");
+        info!("=== HOT RELOAD INITIALIZATION COMPLETED ===");
         Ok(())
     }
     
@@ -152,22 +204,58 @@ impl ECSWorld {
     /// * Ok(()) if the frame was drawn successfully
     /// * Err if drawing failed
     pub fn draw_frame(&mut self) -> Result<()> {
-        let mut vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+        // Check if we need to update command buffers due to hot reload from previous frame
+        // This MUST be done at the very beginning of the frame, before any rendering
+        let _needs_command_buffer_update = if let Some(ref hot_reload_manager) = self.hot_reload_manager {
+            let should_update = hot_reload_manager.check_and_clear_reloads_occurred();
+            debug!("Command buffer update needed: {}", should_update);
+            should_update
+        } else {
+            false
+        };
+
+        // Process any pending shader reloads first and check if pipeline was recreated
+        let pipeline_was_recreated = if let Some(ref mut hot_reload_manager) = self.hot_reload_manager {
+            match hot_reload_manager.process_pending_reloads() {
+                Ok(was_recreated) => was_recreated,
+                Err(e) => {
+                    error!("Failed to process pending shader reloads: {}", e);
+                    false // Continue with frame rendering even if reload fails
+                }
+            }
+        } else {
+            false
+        };
+
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
             .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
-        
+
+        // IMMEDIATE command buffer update if pipeline was recreated
+        if pipeline_was_recreated {
+            info!("Pipeline was recreated during hot reload, updating command buffers immediately");
+            let mut renderer_guard = vulkan_renderer.lock().unwrap();
+            if let Err(e) = renderer_guard.update_command_buffers_after_hot_reload() {
+                error!("Failed to update command buffers after hot reload: {}", e);
+                // Continue with rendering even if command buffer update fails
+            } else {
+                info!("Command buffer update completed successfully after hot reload");
+            }
+        }
+
         // Check if HUD is available and log its state
+        let mut renderer_guard = vulkan_renderer.lock().unwrap();
         match self.hud {
             Some(ref mut hud) => {
-                info!("Drawing frame with HUD - HUD is available");
+                debug!("Drawing frame with HUD");
                 debug!("HUD address: {:p}", hud);
-                vulkan_renderer.draw_frame_with_hud(hud)
+                renderer_guard.draw_frame_with_hud(hud)
                     .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                         format!("Failed to draw frame with HUD: {}", e)
                     )))?;
             }
             None => {
-                info!("Drawing frame without HUD - HUD is None");
-                vulkan_renderer.draw_frame()
+                debug!("Drawing frame without HUD");
+                renderer_guard.draw_frame()
                     .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                         format!("Failed to draw frame: {}", e)
                     )))?;
@@ -188,10 +276,11 @@ impl ECSWorld {
     /// * Ok(()) if resize was handled successfully
     /// * Err if resize handling failed
     pub fn handle_window_resize(&mut self, new_width: u32, new_height: u32, _window: &Window) -> Result<()> {
-        let mut vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
             .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
-        
-        vulkan_renderer.handle_resize(new_width, new_height)
+
+        let mut renderer_guard = vulkan_renderer.lock().unwrap();
+        renderer_guard.handle_resize(new_width, new_height)
             .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                 format!("Failed to handle window resize: {}", e)
             )))?;
@@ -219,18 +308,19 @@ impl ECSWorld {
     /// * Ok(()) if fullscreen toggle was handled successfully
     /// * Err if fullscreen toggle handling failed
     pub fn handle_fullscreen_toggle(&mut self, window: &Window) -> Result<()> {
-        let mut vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
             .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
-        
+
         // Get current window size
         let physical_size = window.inner_size();
         let new_width = physical_size.width;
         let new_height = physical_size.height;
-        
+
         info!("Handling fullscreen toggle, new size: {}x{}", new_width, new_height);
-        
+
         // Handle the resize which will recreate the swapchain
-        vulkan_renderer.handle_resize(new_width, new_height)
+        let mut renderer_guard = vulkan_renderer.lock().unwrap();
+        renderer_guard.handle_resize(new_width, new_height)
             .map_err(|e| AppError::Vulkan(crate::error::VulkanError::Rendering(
                 format!("Failed to handle fullscreen toggle: {}", e)
             )))?;
@@ -257,11 +347,12 @@ impl ECSWorld {
     pub fn wait_for_gpu_idle(&mut self) -> Result<()> {
         info!("Waiting for GPU to complete all pending operations");
         
-        let vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+        let vulkan_renderer = self.resources.get::<Arc<Mutex<VulkanRenderer>>>()
             .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
         
+        let renderer_guard = vulkan_renderer.lock().unwrap();
         unsafe {
-            vulkan_renderer.device.device.device_wait_idle()
+            renderer_guard.device.device.device_wait_idle()
                 .map_err(|e| {
                     error!("Failed to wait for GPU idle: {:?}", e);
                     EcsError::ResourceAccess(format!("Failed to wait for GPU idle: {:?}", e))
@@ -282,6 +373,18 @@ impl ECSWorld {
             // The HUD's Drop implementation will handle proper resource cleanup
             drop(std::mem::replace(&mut self.hud, None));
             info!("HUD system cleaned up manually");
+        }
+    }
+
+    /// Clean up hot reload manager manually
+    /// This should be called before the Vulkan renderer is destroyed
+    /// to break reference cycles and ensure proper pipeline cleanup
+    pub fn cleanup_hot_reload(&mut self) {
+        if self.hot_reload_manager.is_some() {
+            info!("Manually cleaning up hot reload manager");
+            // Explicitly drop the hot reload manager to break reference cycles
+            drop(std::mem::replace(&mut self.hot_reload_manager, None));
+            info!("Hot reload manager cleaned up manually");
         }
     }
     
@@ -339,6 +442,64 @@ impl ECSWorld {
     #[allow(dead_code)] // For future resource access
     pub fn resources_mut(&mut self) -> &mut Resources {
         &mut self.resources
+    }
+    
+    /// Enable or disable hot reload
+    ///
+    /// # Arguments
+    /// * `enabled` - Whether to enable hot reload
+    ///
+    /// # Returns
+    /// * Ok(()) if operation succeeded
+    /// * Err if operation failed
+    pub fn set_hot_reload_enabled(&mut self, enabled: bool) -> Result<()> {
+        if let Some(ref mut hot_reload) = self.hot_reload_manager {
+            hot_reload.set_enabled(enabled)?;
+            info!("Hot reload {}", if enabled { "enabled" } else { "disabled" });
+        } else {
+            warn!("Hot reload manager not initialized");
+        }
+        Ok(())
+    }
+    
+    /// Check if hot reload is enabled
+    ///
+    /// # Returns
+    /// true if hot reload is enabled, false otherwise
+    pub fn is_hot_reload_enabled(&self) -> bool {
+        self.hot_reload_manager
+            .as_ref()
+            .map(|manager| manager.is_enabled())
+            .unwrap_or(false)
+    }
+    
+    /// Manually trigger a shader reload
+    ///
+    /// # Arguments
+    /// * `shader_path` - Path to the shader file to reload
+    ///
+    /// # Returns
+    /// * Ok(()) if reload succeeded
+    /// * Err if reload failed
+    pub fn reload_shader(&self, shader_path: &str) -> Result<()> {
+        if let Some(ref hot_reload) = self.hot_reload_manager {
+            hot_reload.reload_shader(shader_path)?;
+        } else {
+            warn!("Hot reload manager not initialized");
+        }
+        Ok(())
+    }
+    
+    /// Get hot reload statistics
+    ///
+    /// # Returns
+    /// Tuple of (watched_files_count, is_enabled)
+    #[allow(dead_code)]
+    pub fn get_hot_reload_stats(&self) -> (usize, bool) {
+        self.hot_reload_manager
+            .as_ref()
+            .map(|manager| manager.get_stats())
+            .unwrap_or((0, false))
     }
 }
 

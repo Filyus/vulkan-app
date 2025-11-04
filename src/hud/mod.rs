@@ -121,7 +121,17 @@ impl HUD {
         platform.attach_window(io, window, imgui_winit_support::HiDpiMode::Default);
         
         // Create toolbar
-        let toolbar = toolbar::Toolbar::new(toolbar::ToolbarPosition::Top);
+        let mut toolbar = toolbar::Toolbar::new(toolbar::ToolbarPosition::Top);
+        
+        // Set up hot reload button callback
+        if let Some(_toggle_button) = toolbar.get_button("toggle_hot_reload") {
+            // This will be connected to ECS world later
+        }
+        
+        // Set up manual reload button callback
+        if let Some(_reload_button) = toolbar.get_button("reload_shaders") {
+            // This will be connected to ECS world later
+        }
         
         // Create complete ImGui Vulkan backend
         let imgui_backend = imgui_vulkan_backend::ImGuiVulkanBackend::new(
@@ -316,6 +326,7 @@ impl HUD {
         let ui = self.context.frame();
         
         // Render the toolbar - this creates the UI elements
+        // Note: In a full implementation, you'd pass ECS world reference here
         self.toolbar.render(&ui);
         
         // Get the draw data and render it using Vulkan backend
@@ -421,6 +432,52 @@ impl HUD {
     /// Mutable reference to ImGui IO
     pub fn context_mut(&mut self) -> &mut imgui::Io {
         self.context.io_mut()
+    }
+
+    /// Set up hot reload callbacks after ECS world is available
+    ///
+    /// # Arguments
+    /// * `ecs_world` - Reference to ECS world for hot reload functionality
+    #[allow(dead_code)]
+    pub fn setup_hot_reload_callbacks(&mut self, ecs_world: &mut crate::ecs::world::ECSWorld) {
+        // Set up hot reload toggle button
+        if let Some(toggle_button) = self.toolbar.get_button_mut("toggle_hot_reload") {
+            let is_enabled = ecs_world.is_hot_reload_enabled();
+            toggle_button.is_active = is_enabled;
+            
+            let ecs_world_ptr = ecs_world as *mut crate::ecs::world::ECSWorld;
+            toggle_button.action = Some(Box::new(move || {
+                // Safe to access because we know the ECS world lives longer than the callback
+                let ecs_world = unsafe { &mut *ecs_world_ptr };
+                let new_state = !ecs_world.is_hot_reload_enabled();
+                if let Err(e) = ecs_world.set_hot_reload_enabled(new_state) {
+                    log::error!("Failed to toggle hot reload: {}", e);
+                } else {
+                    log::info!("Hot reload {}", if new_state { "enabled" } else { "disabled" });
+                }
+            }));
+        }
+        
+        // Set up manual reload button
+        if let Some(reload_button) = self.toolbar.get_button_mut("reload_shaders") {
+            let ecs_world_ptr = ecs_world as *mut crate::ecs::world::ECSWorld;
+            reload_button.action = Some(Box::new(move || {
+                // Safe to access because we know the ECS world lives longer than the callback
+                let ecs_world = unsafe { &mut *ecs_world_ptr };
+                
+                // Try to reload all shader files
+                let shader_files = ["shaders/sdf.vert", "shaders/sdf.frag", "shaders/imgui.vert", "shaders/imgui.frag"];
+                for shader_file in &shader_files {
+                    if let Err(e) = ecs_world.reload_shader(shader_file) {
+                        log::error!("Failed to reload shader {}: {}", shader_file, e);
+                    } else {
+                        log::info!("Manually reloaded shader: {}", shader_file);
+                    }
+                }
+            }));
+        }
+        
+        log::info!("Hot reload callbacks set up in toolbar");
     }
     
 }

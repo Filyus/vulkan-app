@@ -1,6 +1,7 @@
 use ash::vk;
 use ash::Device;
 use std::ffi::CStr;
+use std::sync::{Arc, Mutex};
 use crate::error::{Result, VulkanError};
 use crate::config;
 use crate::vulkan::shader_compiler::ShaderCompiler;
@@ -8,8 +9,9 @@ use log::{debug, info, warn};
 
 /// Vulkan pipeline wrapper with proper resource management
 ///
-/// This struct manages the Vulkan render pass, pipeline layout, and graphics pipeline,
+/// This struct manages Vulkan render pass, pipeline layout, and graphics pipeline,
 /// ensuring proper cleanup and providing debugging capabilities.
+#[derive(Clone)]
 pub struct VulkanPipeline {
     /// The render pass
     pub render_pass: vk::RenderPass,
@@ -25,7 +27,7 @@ pub struct VulkanPipeline {
     
     /// Shader compiler for runtime compilation
     #[allow(dead_code)]
-    shader_compiler: ShaderCompiler,
+    shader_compiler: Arc<Mutex<ShaderCompiler>>,
 }
 
 impl VulkanPipeline {
@@ -83,7 +85,7 @@ impl VulkanPipeline {
             pipeline_layout,
             graphics_pipeline,
             device: device.clone(), // Clone device for cleanup
-            shader_compiler,
+            shader_compiler: Arc::new(Mutex::new(shader_compiler)),
         })
     }
     
@@ -324,13 +326,13 @@ impl VulkanPipeline {
         info!("Recompiling shaders and recreating pipeline");
         
         // Clear shader cache to force recompilation
-        self.shader_compiler.clear_cache();
+        self.shader_compiler.lock().unwrap().clear_cache();
         
         // Recreate the graphics pipeline with fresh shaders
         let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(
             &self.device,
             self.render_pass,
-            &mut self.shader_compiler
+            &mut self.shader_compiler.lock().unwrap()
         )?;
         
         // Clean up old pipeline and layout
@@ -347,13 +349,78 @@ impl VulkanPipeline {
         Ok(())
     }
     
+    /// Recompile a specific shader and recreate the pipeline
+    ///
+    /// This method allows for hot-reloading of a specific shader during development
+    /// Note: This method should only be called when no rendering is in progress
+    /// CRITICAL: Command buffers must be recreated after calling this method
+    ///
+    /// # Arguments
+    /// * `shader_path` - Path to the shader file that was changed
+    ///
+    /// # Returns
+    /// Ok(()) if recompilation succeeded
+    /// Err if recompilation failed
+    ///
+    /// # Errors
+    /// Returns an error if shader compilation or pipeline recreation fails
+    pub fn recompile_shader(&mut self, shader_path: &str) -> Result<()> {
+        info!("Recompiling shader {} and recreating pipeline", shader_path);
+
+        // Clear specific shader from cache to force recompilation
+        // For now, we'll clear the entire cache and recreate the pipeline
+        self.shader_compiler.lock().unwrap().clear_cache();
+
+        // CRITICAL: Wait for GPU to complete ALL work before pipeline destruction
+        // This is the most important synchronization point
+        info!("Waiting for GPU to complete all work before pipeline recreation");
+        unsafe {
+            self.device.device_wait_idle()
+                .map_err(|e| VulkanError::PipelineCreation(format!("Failed to wait for device idle: {:?}", e)))?;
+        }
+        info!("GPU idle confirmed, safe to proceed with pipeline recreation");
+
+        // Recreate the graphics pipeline with fresh shaders
+        let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(
+            &self.device,
+            self.render_pass,
+            &mut self.shader_compiler.lock().unwrap()
+        )?;
+
+        // Store old handles for cleanup after pipeline creation succeeds
+        let old_pipeline_layout = self.pipeline_layout;
+        let old_graphics_pipeline = self.graphics_pipeline;
+
+        // Update with new pipeline first (this is the critical change)
+        self.pipeline_layout = pipeline_layout;
+        self.graphics_pipeline = graphics_pipeline;
+
+        // Wait one more time to ensure no command buffers are still submitting to old pipeline
+        info!("Final GPU sync before destroying old pipeline");
+        unsafe {
+            self.device.device_wait_idle()
+                .map_err(|e| VulkanError::PipelineCreation(format!("Failed to wait for device idle before cleanup: {:?}", e)))?;
+        }
+
+        // Clean up old pipeline and layout ONLY after double-sync
+        // This ensures absolutely no command buffers are using the old pipeline
+        unsafe {
+            self.device.destroy_pipeline(old_graphics_pipeline, None);
+            self.device.destroy_pipeline_layout(old_pipeline_layout, None);
+        }
+
+        info!("Shader recompilation completed successfully for: {}", shader_path);
+        info!("IMPORTANT: All command buffers must be recreated immediately");
+        Ok(())
+    }
+    
     /// Get shader compiler statistics
     ///
     /// # Returns
     /// Tuple of (cached_shaders, cache_size_bytes)
     #[allow(dead_code)]
     pub fn get_shader_cache_stats(&self) -> (usize, usize) {
-        self.shader_compiler.get_cache_stats()
+        self.shader_compiler.lock().unwrap().get_cache_stats()
     }
 }
 

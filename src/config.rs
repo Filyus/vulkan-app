@@ -91,43 +91,43 @@ pub mod rendering {
 pub mod debug {
     /// Enable debug logging
     pub const ENABLE_LOGGING: bool = true;
-    
+
     /// Minimum log level to display
-    pub const LOG_LEVEL: log::LevelFilter = log::LevelFilter::Debug;
-    
+    pub const LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+
     /// Enable verbose Vulkan debug messages
     #[allow(dead_code)] // For future verbose debugging
     pub const ENABLE_VERBOSE_VULKAN_DEBUG: bool = true;
-    
+
     /// Enable performance monitoring
     #[allow(dead_code)] // For future performance analysis
     pub const ENABLE_PERFORMANCE_MONITORING: bool = false;
-    
+
     /// Enable frame time tracking
     #[allow(dead_code)]
     pub const ENABLE_FRAME_TIME_TRACKING: bool = true;
-    
+
     /// Enable debug mode with additional validation
     pub const ENABLE_DEBUG_MODE: bool = cfg!(debug_assertions);
-    
+
     /// Enable detailed Vulkan validation
     pub const ENABLE_DETAILED_VALIDATION: bool = cfg!(debug_assertions);
-    
+
     /// Enable object naming for debugging
     pub const ENABLE_OBJECT_NAMING: bool = cfg!(debug_assertions);
-    
+
     /// Enable command buffer debugging
     pub const ENABLE_COMMAND_BUFFER_DEBUG: bool = cfg!(debug_assertions);
-    
+
     /// Enable memory tracking
     pub const ENABLE_MEMORY_TRACKING: bool = cfg!(debug_assertions);
-    
+
     /// Enable shader debugging
     pub const ENABLE_SHADER_DEBUGGING: bool = cfg!(debug_assertions);
-    
+
     /// Enable pipeline debugging
     pub const ENABLE_PIPELINE_DEBUGGING: bool = cfg!(debug_assertions);
-    
+
     /// Enable render pass debugging
     pub const ENABLE_RENDER_PASS_DEBUGGING: bool = cfg!(debug_assertions);
 }
@@ -178,6 +178,40 @@ pub mod shader {
     /// Preload commonly used shaders on startup
     pub const PRELOAD_SHADERS: bool = true;
 }
+
+/// Hot reload configuration
+pub mod hot_reload {
+    /// Enable hot shader reload by default (only in debug builds)
+    pub const ENABLED: bool = cfg!(debug_assertions);
+    
+    /// Shader directory to watch for changes
+    pub const SHADER_DIR: &str = "shaders";
+    
+    /// Debounce time for file changes (milliseconds)
+    pub const DEBOUNCE_MS: u64 = 500;
+    
+    /// File extensions to watch for shader changes
+    pub const WATCH_EXTENSIONS: &[&str] = &["vert", "frag", "geom", "comp", "tesc", "tese"];
+    
+    /// Enable hot reload for vertex shaders
+    pub const RELOAD_VERTEX_SHADERS: bool = true;
+    
+    /// Enable hot reload for fragment shaders
+    pub const RELOAD_FRAGMENT_SHADERS: bool = true;
+    
+    /// Enable hot reload for geometry shaders
+    pub const RELOAD_GEOMETRY_SHADERS: bool = true;
+    
+    /// Enable hot reload for compute shaders
+    pub const RELOAD_COMPUTE_SHADERS: bool = true;
+    
+    /// Enable hot reload for tessellation shaders
+    pub const RELOAD_TESSELLATION_SHADERS: bool = true;
+    
+    /// Log shader reload events
+    pub const LOG_RELOAD_EVENTS: bool = true;
+    
+  }
 
 /// Memory configuration
 pub mod memory {

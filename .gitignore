@@ -41,3 +41,6 @@ Makefile
 
 # Vulkan SDK specific
 VulkanSDK/
+
+# Claude AI settings
+.claude/

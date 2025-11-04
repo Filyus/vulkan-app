@@ -249,7 +249,7 @@ pub fn create_sdf_entities(world: &mut World, resources: &mut Resources) -> Resu
 /// * `world` - The ECS world containing entities
 /// * `resources` - The resources container including the Vulkan renderer
 pub fn sdf_render_system(world: &mut World, resources: &mut Resources) {
-    let _vulkan_renderer = match resources.get_mut::<crate::vulkan::renderer::VulkanRenderer>() {
+    let _vulkan_renderer = match resources.get::<std::sync::Arc<std::sync::Mutex<crate::vulkan::renderer::VulkanRenderer>>>() {
         Some(renderer) => renderer,
         None => {
             warn!("VulkanRenderer resource not found in SDF render system");

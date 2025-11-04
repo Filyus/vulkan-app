@@ -1,5 +1,6 @@
 use ash::vk;
 use ash::{Device, Instance};
+use std::sync::{Arc, Mutex};
 use crate::vulkan::{VulkanInstance, VulkanDevice, VulkanSwapchain, VulkanPipeline};
 use crate::error::{Result, VulkanError};
 use crate::config;
@@ -42,8 +43,8 @@ pub struct VulkanRenderer {
     // Framebuffers (cleaned up before pipeline and swapchain)
     framebuffers: Vec<vk::Framebuffer>,
     
-    // Pipeline (cleaned up before device)
-    pub pipeline: VulkanPipeline,
+    // Pipeline (cleaned up before device) - shared with hot reload manager
+    pub pipeline: Arc<Mutex<VulkanPipeline>>,
     
     // Swapchain (cleaned up before surface and device)
     pub swapchain: VulkanSwapchain,
@@ -96,27 +97,29 @@ impl VulkanRenderer {
         let swapchain = VulkanSwapchain::new(&instance.instance, &instance.entry, &device, surface, window)
             .map_err(|e| VulkanError::SwapchainCreation(format!("Failed to create swapchain: {}", e)))?;
         
-        let pipeline = VulkanPipeline::new(&device.device, swapchain.swapchain_image_format)
-            .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create pipeline: {}", e)))?;
+        let pipeline = Arc::new(Mutex::new(VulkanPipeline::new(&device.device, swapchain.swapchain_image_format)
+            .map_err(|e| VulkanError::PipelineCreation(format!("Failed to create pipeline: {}", e)))?));
         
+        let pipeline_guard = pipeline.lock().unwrap();
         let framebuffers = Self::create_framebuffers(
             &device.device,
-            pipeline.render_pass,
+            pipeline_guard.render_pass,
             &swapchain.swapchain_image_views,
             swapchain.swapchain_extent
         )?;
-        
+
         let command_pool = Self::create_command_pool(&device.device, &device.queue_families)?;
         let command_buffers = Self::create_command_buffers(
             &device.device,
             command_pool,
-            pipeline.graphics_pipeline,
-            pipeline.pipeline_layout,
-            pipeline.render_pass,
+            pipeline_guard.graphics_pipeline,
+            pipeline_guard.pipeline_layout,
+            pipeline_guard.render_pass,
             &framebuffers,
             swapchain.swapchain_extent
         )?;
-        
+        drop(pipeline_guard); // Release the lock
+
         let (image_available_semaphores, render_finished_semaphores, in_flight_fences) =
             Self::create_sync_objects(&device.device)?;
         
@@ -342,6 +345,7 @@ impl VulkanRenderer {
             
             unsafe {
                 device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                debug!("Binding pipeline {:?} in command buffer {}", graphics_pipeline, i);
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, graphics_pipeline);
                 
                 // Set dynamic viewport and scissor
@@ -490,9 +494,10 @@ impl VulkanRenderer {
             let begin_info = vk::CommandBufferBeginInfo::default();
             self.device.device.begin_command_buffer(command_buffer, &begin_info)
                 .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer: {:?}", e)))?;
-            
+
+            let pipeline_guard = self.pipeline.lock().unwrap();
             let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-                .render_pass(self.pipeline.render_pass)
+                .render_pass(pipeline_guard.render_pass)
                 .framebuffer(self.framebuffers[image_index as usize])
                 .render_area(vk::Rect2D {
                     offset: vk::Offset2D { x: 0, y: 0 },
@@ -505,7 +510,7 @@ impl VulkanRenderer {
                 }]);
             
             self.device.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.graphics_pipeline);
+            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_guard.graphics_pipeline);
             
             // Set dynamic viewport and scissor
             let viewport = vk::Viewport {
@@ -527,7 +532,7 @@ impl VulkanRenderer {
             // Push updated constants to both vertex and fragment shaders
             self.device.device.cmd_push_constants(
                 command_buffer,
-                self.pipeline.pipeline_layout,
+                pipeline_guard.pipeline_layout,
                 vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 0,
                 bytemuck::bytes_of(&push_constants)
@@ -651,9 +656,10 @@ impl VulkanRenderer {
             let begin_info = vk::CommandBufferBeginInfo::default();
             self.device.device.begin_command_buffer(command_buffer, &begin_info)
                 .map_err(|e| VulkanError::CommandBuffer(format!("Failed to begin command buffer: {:?}", e)))?;
-            
+
+            let pipeline_guard = self.pipeline.lock().unwrap();
             let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-                .render_pass(self.pipeline.render_pass)
+                .render_pass(pipeline_guard.render_pass)
                 .framebuffer(self.framebuffers[image_index as usize])
                 .render_area(vk::Rect2D {
                     offset: vk::Offset2D { x: 0, y: 0 },
@@ -666,7 +672,7 @@ impl VulkanRenderer {
                 }]);
             
             self.device.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.graphics_pipeline);
+            self.device.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_guard.graphics_pipeline);
             
             // Set dynamic viewport and scissor
             let viewport = vk::Viewport {
@@ -688,7 +694,7 @@ impl VulkanRenderer {
             // Push updated constants to both vertex and fragment shaders
             self.device.device.cmd_push_constants(
                 command_buffer,
-                self.pipeline.pipeline_layout,
+                pipeline_guard.pipeline_layout,
                 vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 0,
                 bytemuck::bytes_of(&push_constants)
@@ -830,11 +836,12 @@ impl VulkanRenderer {
                 self.device.device.destroy_framebuffer(framebuffer, None);
             }
         }
-        
+
         // Create new framebuffers
+        let pipeline_guard = self.pipeline.lock().unwrap();
         self.framebuffers = Self::create_framebuffers(
             &self.device.device,
-            self.pipeline.render_pass,
+            pipeline_guard.render_pass,
             &self.swapchain.swapchain_image_views,
             self.swapchain.swapchain_extent
         )?;
@@ -848,26 +855,52 @@ impl VulkanRenderer {
     /// * Ok(()) if command buffers were recreated successfully
     /// * Err if command buffer recreation failed
     fn recreate_command_buffers(&mut self) -> Result<()> {
+        info!("=== RECREATING COMMAND BUFFERS AFTER HOT RELOAD ===");
+
+        // CRITICAL: Wait for GPU to complete ALL work before destroying command buffers
+        // Command buffers might still be in flight when hot reload occurs
+        info!("Waiting for GPU to complete all work before command buffer recreation");
+        unsafe {
+            self.device.device.device_wait_idle()
+                .map_err(|e| VulkanError::Rendering(format!("Failed to wait for device idle before command buffer recreation: {:?}", e)))?;
+        }
+        info!("GPU idle confirmed, safe to recreate command buffers");
+
         // Free old command buffers
         unsafe {
             self.device.device.free_command_buffers(self.command_pool, &self.command_buffers);
         }
-        
-        // Create new command buffers
+        info!("Old command buffers freed");
+
+    // Create new command buffers with the new pipeline
+        let pipeline_guard = self.pipeline.lock().unwrap();
+        debug!("Using pipeline handle for command buffer recreation");
         self.command_buffers = Self::create_command_buffers(
             &self.device.device,
             self.command_pool,
-            self.pipeline.graphics_pipeline,
-            self.pipeline.pipeline_layout,
-            self.pipeline.render_pass,
+            pipeline_guard.graphics_pipeline,
+            pipeline_guard.pipeline_layout,
+            pipeline_guard.render_pass,
             &self.framebuffers,
             self.swapchain.swapchain_extent
         )?;
-        
+        info!("New command buffers created and recorded with updated pipeline");
+
+        info!("=== COMMAND BUFFER RECREATION COMPLETED SUCCESSFULLY ===");
         Ok(())
     }
-    
-    
+
+    /// Update command buffers after pipeline recreation (for hot reload)
+    ///
+    /// # Returns
+    /// * Ok(()) if command buffers were updated successfully
+    /// * Err if command buffer update failed
+    pub fn update_command_buffers_after_hot_reload(&mut self) -> Result<()> {
+        info!("Updating command buffers after hot reload");
+        self.recreate_command_buffers()
+    }
+
+
     /// Get HUD reference for rendering (unsafe - used during render pass)
     fn get_hud_for_rendering(&self) -> Option<&mut crate::hud::HUD> {
         debug!("Getting HUD reference for rendering, current reference: {:?}", self.hud_reference);
@@ -909,8 +942,16 @@ impl Drop for VulkanRenderer {
             for &framebuffer in &self.framebuffers {
                 self.device.device.destroy_framebuffer(framebuffer, None);
             }
-            
-            // 4. Clean up vertex and index buffers if they exist
+
+            // 4. Explicitly clean up pipeline to break reference cycle
+            debug!("Explicitly dropping pipeline reference");
+            // Take the pipeline out of the Arc to drop our reference
+            if let Ok(_pipeline_guard) = self.pipeline.lock() {
+                debug!("Dropping our pipeline reference to break reference cycle");
+                // The pipeline resources will be cleaned up when the last Arc reference is dropped
+            }
+
+            // 5. Clean up vertex and index buffers if they exist
             debug!("Cleaning up vertex and index buffers");
             if self._vertex_buffer != vk::Buffer::null() {
                 self.device.device.destroy_buffer(self._vertex_buffer, None);

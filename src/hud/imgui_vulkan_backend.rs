@@ -610,7 +610,7 @@ impl ImGuiVulkanBackend {
         
         // Verify the texture was uploaded correctly by checking descriptor set
         if self.descriptor_set.is_some() {
-            info!("Font texture descriptor set is bound and ready");
+            info!("Font texture descriptor set ready");
         } else {
             error!("Font texture descriptor set is not bound!");
         }
@@ -638,7 +638,7 @@ impl ImGuiVulkanBackend {
     }
 
     pub fn render(&mut self, draw_data: &imgui::DrawData, command_buffer: vk::CommandBuffer) -> Result<(), AppError> {
-        info!("Rendering ImGui with {} draw lists", draw_data.draw_lists().count());
+        debug!("Rendering {} draw lists", draw_data.draw_lists().count());
         
         // Verify font texture is ready
         if self.font_texture.is_none() || self.font_texture_view.is_none() || self.descriptor_set.is_none() {
@@ -646,7 +646,7 @@ impl ImGuiVulkanBackend {
             return Err(AppError::HUD("Font texture not properly initialized".to_string()));
         }
         
-        info!("Font texture is properly initialized, proceeding with rendering");
+        debug!("Font texture ready, rendering ImGui");
 
         // Create vertex and index buffers
         self.create_buffers(draw_data)?;
@@ -676,7 +676,7 @@ impl ImGuiVulkanBackend {
             self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.unwrap());
 
             // Bind descriptor set
-            info!("Binding font texture descriptor set");
+            debug!("Binding font descriptor set");
             self.device.cmd_bind_descriptor_sets(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -685,7 +685,7 @@ impl ImGuiVulkanBackend {
                 &[self.descriptor_set.unwrap()],
                 &[],
             );
-            info!("Descriptor set bound successfully");
+            debug!("Descriptor set bound");
 
             // Bind vertex and index buffers
             if let (Some(vertex_buffer), Some(index_buffer)) = (self.vertex_buffer, self.index_buffer) {
@@ -743,8 +743,17 @@ impl ImGuiVulkanBackend {
     /// This should be called after each frame to ensure buffers are properly destroyed
     pub fn cleanup_dynamic_buffers(&mut self) {
         debug!("Cleaning up dynamic ImGui buffers");
-        
+
+        // CRITICAL: Wait for GPU to complete all work before destroying ImGui buffers
+        // Buffers might still be in use by command buffers from previous frames
         unsafe {
+            debug!("Waiting for GPU to complete all work before ImGui buffer cleanup");
+            if let Err(e) = self.device.device_wait_idle() {
+                error!("Failed to wait for device idle before ImGui buffer cleanup: {:?}", e);
+                return;
+            }
+            debug!("GPU idle confirmed, safe to cleanup ImGui buffers");
+
             if let Some(vertex_buffer) = self.vertex_buffer {
                 self.device.destroy_buffer(vertex_buffer, None);
             }
@@ -758,15 +767,15 @@ impl ImGuiVulkanBackend {
                 self.device.free_memory(index_memory, None);
             }
         }
-        
+
         self.vertex_buffer = None;
         self.vertex_buffer_memory = None;
         self.index_buffer = None;
         self.index_buffer_memory = None;
         self.vertex_count = 0;
         self.index_count = 0;
-        
-        debug!("Dynamic ImGui buffers cleaned up");
+
+        debug!("Dynamic ImGui buffers cleaned up safely");
     }
 
     fn create_buffers(&mut self, draw_data: &imgui::DrawData) -> Result<(), AppError> {
@@ -783,68 +792,99 @@ impl ImGuiVulkanBackend {
             return Ok(());
         }
 
-        // Clean up existing buffers before creating new ones
-        self.cleanup_dynamic_buffers();
+        // REUSE STRATEGY: Only recreate buffers if they're too small or don't exist
+        let vertex_size = (total_vertices * std::mem::size_of::<imgui::DrawVert>()) as u64;
+        let index_size = (total_indices * std::mem::size_of::<u16>()) as u64;
 
-        // Create vertex buffer
-        let vertex_buffer_size = (total_vertices * mem::size_of::<ImguiVertex>()) as u64;
-        let vertex_buffer_info = vk::BufferCreateInfo::default()
-            .size(vertex_buffer_size)
-            .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        // Check if we need to recreate buffers
+        let mut need_recreate = false;
+        if self.vertex_buffer.is_none() || self.index_buffer.is_none() {
+            need_recreate = true;
+        } else {
+            // Check if current buffers are large enough
+            let current_vertex_size = if let Some(_memory) = self.vertex_buffer_memory {
+                let requirements = unsafe { self.device.get_buffer_memory_requirements(*self.vertex_buffer.as_ref().unwrap()) };
+                requirements.size
+            } else {
+                0
+            };
 
-        self.vertex_buffer = unsafe {
-            Some(self.device.create_buffer(&vertex_buffer_info, None)?)
-        };
+            let current_index_size = if let Some(_memory) = self.index_buffer_memory {
+                let requirements = unsafe { self.device.get_buffer_memory_requirements(*self.index_buffer.as_ref().unwrap()) };
+                requirements.size
+            } else {
+                0
+            };
 
-        // Create index buffer
-        let index_buffer_size = (total_indices * mem::size_of::<u16>()) as u64;
-        let index_buffer_info = vk::BufferCreateInfo::default()
-            .size(index_buffer_size)
-            .usage(vk::BufferUsageFlags::INDEX_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-        self.index_buffer = unsafe {
-            Some(self.device.create_buffer(&index_buffer_info, None)?)
-        };
-
-        // Allocate memory for vertex buffer
-        let vertex_mem_requirements = unsafe { self.device.get_buffer_memory_requirements(self.vertex_buffer.unwrap()) };
-        debug!("Vertex buffer memory requirements: size={}, type_bits={:032b}", vertex_mem_requirements.size, vertex_mem_requirements.memory_type_bits);
-        
-        let vertex_alloc_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(vertex_mem_requirements.size)
-            .memory_type_index(self.find_memory_type(
-                vertex_mem_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?);
-
-        self.vertex_buffer_memory = unsafe {
-            Some(self.device.allocate_memory(&vertex_alloc_info, None)?)
-        };
-
-        unsafe {
-            self.device.bind_buffer_memory(self.vertex_buffer.unwrap(), self.vertex_buffer_memory.unwrap(), 0)?;
+            if vertex_size > current_vertex_size || index_size > current_index_size {
+                need_recreate = true;
+                // Clean up old buffers before creating larger ones
+                self.cleanup_dynamic_buffers();
+            }
         }
 
-        // Allocate memory for index buffer
-        let index_mem_requirements = unsafe { self.device.get_buffer_memory_requirements(self.index_buffer.unwrap()) };
-        debug!("Index buffer memory requirements: size={}, type_bits={:032b}", index_mem_requirements.size, index_mem_requirements.memory_type_bits);
-        
-        let index_alloc_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(index_mem_requirements.size)
-            .memory_type_index(self.find_memory_type(
-                index_mem_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?);
+        if need_recreate {
+            debug!("Creating new ImGui buffers: {} vertices, {} indices", total_vertices, total_indices);
 
-        self.index_buffer_memory = unsafe {
-            Some(self.device.allocate_memory(&index_alloc_info, None)?)
-        };
+            // Create vertex buffer
+            let vertex_buffer_size = (total_vertices * mem::size_of::<ImguiVertex>()) as u64;
+            let vertex_buffer_info = vk::BufferCreateInfo::default()
+                .size(vertex_buffer_size)
+                .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        unsafe {
-            self.device.bind_buffer_memory(self.index_buffer.unwrap(), self.index_buffer_memory.unwrap(), 0)?;
-        }
+            self.vertex_buffer = unsafe {
+                Some(self.device.create_buffer(&vertex_buffer_info, None)?)
+            };
+
+            // Create index buffer
+            let index_buffer_size = (total_indices * mem::size_of::<u16>()) as u64;
+            let index_buffer_info = vk::BufferCreateInfo::default()
+                .size(index_buffer_size)
+                .usage(vk::BufferUsageFlags::INDEX_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+            self.index_buffer = unsafe {
+                Some(self.device.create_buffer(&index_buffer_info, None)?)
+            };
+
+            // Allocate memory for vertex buffer
+            let vertex_mem_requirements = unsafe { self.device.get_buffer_memory_requirements(self.vertex_buffer.unwrap()) };
+            debug!("Vertex buffer memory requirements: size={}, type_bits={:032b}", vertex_mem_requirements.size, vertex_mem_requirements.memory_type_bits);
+
+            let vertex_alloc_info = vk::MemoryAllocateInfo::default()
+                .allocation_size(vertex_mem_requirements.size)
+                .memory_type_index(self.find_memory_type(
+                    vertex_mem_requirements.memory_type_bits,
+                    vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+                )?);
+
+            self.vertex_buffer_memory = unsafe {
+                Some(self.device.allocate_memory(&vertex_alloc_info, None)?)
+            };
+
+            unsafe {
+                self.device.bind_buffer_memory(self.vertex_buffer.unwrap(), self.vertex_buffer_memory.unwrap(), 0)?;
+            }
+
+            // Allocate memory for index buffer
+            let index_mem_requirements = unsafe { self.device.get_buffer_memory_requirements(self.index_buffer.unwrap()) };
+            debug!("Index buffer memory requirements: size={}, type_bits={:032b}", index_mem_requirements.size, index_mem_requirements.memory_type_bits);
+
+            let index_alloc_info = vk::MemoryAllocateInfo::default()
+                .allocation_size(index_mem_requirements.size)
+                .memory_type_index(self.find_memory_type(
+                    index_mem_requirements.memory_type_bits,
+                    vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+                )?);
+
+            self.index_buffer_memory = unsafe {
+                Some(self.device.allocate_memory(&index_alloc_info, None)?)
+            };
+
+            unsafe {
+                self.device.bind_buffer_memory(self.index_buffer.unwrap(), self.index_buffer_memory.unwrap(), 0)?;
+            }
 
         // Upload vertex data - map the entire buffer once
         debug!("Mapping vertex buffer memory: size={}, buffer={:?}", vertex_buffer_size, self.vertex_buffer.unwrap());
@@ -932,7 +972,92 @@ impl ImGuiVulkanBackend {
             self.device.unmap_memory(self.index_buffer_memory.unwrap());
         }
         
-        debug!("Uploaded {} vertices and {} indices to GPU buffers", total_vertices, total_indices);
+          debug!("Uploaded {} vertices and {} indices to GPU buffers", total_vertices, total_indices);
+        } else {
+            debug!("Reusing existing ImGui buffers: {} vertices, {} indices", total_vertices, total_indices);
+
+            // Reuse existing buffers - just upload new data
+            let vertex_buffer_size = (total_vertices * mem::size_of::<ImguiVertex>()) as u64;
+            let index_buffer_size = (total_indices * mem::size_of::<u16>()) as u64;
+
+            // Upload vertex data to existing buffer
+            debug!("Mapping existing vertex buffer memory: size={}, buffer={:?}", vertex_buffer_size, self.vertex_buffer.unwrap());
+            let vertex_mapped_memory = unsafe {
+                self.device.map_memory(
+                    self.vertex_buffer_memory.unwrap(),
+                    0,
+                    vertex_buffer_size,
+                    vk::MemoryMapFlags::empty(),
+                )?
+            };
+            debug!("Existing vertex buffer memory mapped successfully");
+
+            let mut vertex_offset = 0;
+            for (_list_idx, draw_list) in draw_data.draw_lists().enumerate() {
+                let vertices = draw_list.vtx_buffer();
+                let vertex_size = vertices.len() * mem::size_of::<ImguiVertex>();
+
+                if vertex_size > 0 {
+                    unsafe {
+                        let dst = vertex_mapped_memory.add(vertex_offset) as *mut ImguiVertex;
+                        // Convert DrawVert to ImguiVertex
+                        for (i, vertex) in vertices.iter().enumerate() {
+                            let imgui_vertex = ImguiVertex {
+                                pos: [vertex.pos[0], vertex.pos[1]],
+                                uv: [vertex.uv[0], vertex.uv[1]],
+                                col: [
+                                    vertex.col[0],
+                                    vertex.col[1],
+                                    vertex.col[2],
+                                    vertex.col[3],
+                                ],
+                            };
+                            dst.add(i).write(imgui_vertex);
+                        }
+                    }
+                }
+
+                vertex_offset += vertex_size;
+            }
+
+            unsafe {
+                self.device.unmap_memory(self.vertex_buffer_memory.unwrap());
+            }
+
+            // Upload index data to existing buffer
+            debug!("Mapping existing index buffer memory: size={}, buffer={:?}", index_buffer_size, self.index_buffer.unwrap());
+            let index_mapped_memory = unsafe {
+                self.device.map_memory(
+                    self.index_buffer_memory.unwrap(),
+                    0,
+                    index_buffer_size,
+                    vk::MemoryMapFlags::empty(),
+                )?
+            };
+            debug!("Existing index buffer memory mapped successfully");
+
+            let mut index_offset = 0;
+            for draw_list in draw_data.draw_lists() {
+                let indices = draw_list.idx_buffer();
+                let index_size = indices.len() * mem::size_of::<u16>();
+
+                if index_size > 0 {
+                    unsafe {
+                        let dst = index_mapped_memory.add(index_offset) as *mut u16;
+                        dst.copy_from_nonoverlapping(indices.as_ptr(), indices.len());
+                    }
+                }
+
+                index_offset += index_size;
+            }
+
+            unsafe {
+                self.device.unmap_memory(self.index_buffer_memory.unwrap());
+            }
+
+            debug!("Reused existing buffers with new data: {} vertices, {} indices", total_vertices, total_indices);
+        }
+
         self.vertex_count = total_vertices;
         self.index_count = total_indices;
 
