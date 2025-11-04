@@ -940,38 +940,70 @@ impl ImGuiVulkanBackend {
     }
 
     pub fn cleanup(&mut self) {
+        // Check if already cleaned up to avoid double cleanup
+        if self.pipeline.is_none() && self.font_texture_sampler.is_none() {
+            debug!("ImGui Vulkan backend already cleaned up, skipping");
+            return;
+        }
+        
         debug!("Cleaning up ImGui Vulkan backend");
         
         // First clean up dynamic buffers
         self.cleanup_dynamic_buffers();
         
+        // Destroy resources in proper dependency order
+        // With proper shutdown sequencing, no device_wait_idle() should be needed
         unsafe {
+            // 1. Destroy pipeline first (uses pipeline layout and descriptor sets)
             if let Some(pipeline) = self.pipeline {
+                debug!("Destroying ImGui pipeline");
                 self.device.destroy_pipeline(pipeline, None);
             }
+            
+            // 2. Destroy pipeline layout
             if let Some(pipeline_layout) = self.pipeline_layout {
+                debug!("Destroying ImGui pipeline layout");
                 self.device.destroy_pipeline_layout(pipeline_layout, None);
             }
-            if let Some(sampler) = self.font_texture_sampler {
-                self.device.destroy_sampler(sampler, None);
-            }
-            if let Some(view) = self.font_texture_view {
-                self.device.destroy_image_view(view, None);
-            }
-            if let Some(image) = self.font_texture {
-                self.device.destroy_image(image, None);
-            }
-            if let Some(memory) = self.font_texture_memory {
-                self.device.free_memory(memory, None);
-            }
+            
+            // 3. Destroy descriptor pool (contains descriptor sets that reference sampler and image view)
             if let Some(pool) = self.descriptor_pool {
+                debug!("Destroying ImGui descriptor pool");
                 self.device.destroy_descriptor_pool(pool, None);
             }
+            
+            // 4. Destroy sampler (now safe since descriptor pool is destroyed)
+            if let Some(sampler) = self.font_texture_sampler {
+                debug!("Destroying ImGui font texture sampler");
+                self.device.destroy_sampler(sampler, None);
+            }
+            
+            // 5. Destroy image view (now safe since descriptor pool is destroyed)
+            if let Some(view) = self.font_texture_view {
+                debug!("Destroying ImGui font texture view");
+                self.device.destroy_image_view(view, None);
+            }
+            
+            // 6. Destroy image
+            if let Some(image) = self.font_texture {
+                debug!("Destroying ImGui font texture image");
+                self.device.destroy_image(image, None);
+            }
+            
+            // 7. Free memory
+            if let Some(memory) = self.font_texture_memory {
+                debug!("Freeing ImGui font texture memory");
+                self.device.free_memory(memory, None);
+            }
+            
+            // 8. Destroy descriptor set layout last
             if let Some(layout) = self.descriptor_set_layout {
+                debug!("Destroying ImGui descriptor set layout");
                 self.device.destroy_descriptor_set_layout(layout, None);
             }
         }
         
+        // Clear all references
         self.font_texture = None;
         self.font_texture_view = None;
         self.font_texture_sampler = None;

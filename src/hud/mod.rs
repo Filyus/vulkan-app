@@ -433,6 +433,7 @@ impl Drop for HUD {
         // before the Vulkan device is destroyed
         if let Some(ref mut backend) = self.imgui_backend {
             debug!("Cleaning up ImGui Vulkan backend");
+            // The backend.cleanup() method now handles device wait idle internally
             backend.cleanup();
         }
         

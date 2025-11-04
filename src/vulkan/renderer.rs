@@ -882,11 +882,14 @@ impl VulkanRenderer {
 
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
+        debug!("Starting VulkanRenderer cleanup");
+        
         unsafe {
-            // Wait for device to be idle before cleanup
-            let _ = self.device.device.device_wait_idle();
+            // Clean up resources in proper dependency order
+            // With proper shutdown sequencing, no device_wait_idle() should be needed
             
-            // Clean up sync objects first
+            // 1. Clean up sync objects first (they don't depend on other resources)
+            debug!("Cleaning up sync objects");
             for &fence in &self.in_flight_fences {
                 self.device.device.destroy_fence(fence, None);
             }
@@ -897,15 +900,18 @@ impl Drop for VulkanRenderer {
                 self.device.device.destroy_semaphore(semaphore, None);
             }
             
-            // Clean up command pool (this will clean up command buffers)
+            // 2. Clean up command pool (this will clean up command buffers)
+            debug!("Cleaning up command pool");
             self.device.device.destroy_command_pool(self.command_pool, None);
             
-            // Clean up framebuffers
+            // 3. Clean up framebuffers (depend on render pass and image views)
+            debug!("Cleaning up framebuffers");
             for &framebuffer in &self.framebuffers {
                 self.device.device.destroy_framebuffer(framebuffer, None);
             }
             
-            // Clean up vertex and index buffers if they exist
+            // 4. Clean up vertex and index buffers if they exist
+            debug!("Cleaning up vertex and index buffers");
             if self._vertex_buffer != vk::Buffer::null() {
                 self.device.device.destroy_buffer(self._vertex_buffer, None);
             }
@@ -919,5 +925,7 @@ impl Drop for VulkanRenderer {
                 self.device.device.free_memory(self._index_buffer_memory, None);
             }
         }
+        
+        debug!("VulkanRenderer cleanup completed");
     }
 }

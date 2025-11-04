@@ -17,13 +17,13 @@ A comprehensive Vulkan application written in Rust featuring Entity Component Sy
 - **Modern Error Handling**: Comprehensive error handling with custom `AppError` types
 - **Debug Support**: Extensive debugging utilities and validation layer integration
 - **Configuration System**: Centralized configuration for window, Vulkan, rendering, and debug settings
-- **Shader Support**: GLSL vertex and fragment shaders with proper compilation pipeline
-- **Resource Management**: Proper Vulkan resource cleanup and memory management
+- **Runtime Shader Compilation**: Automatic shader compilation on startup with caching and optimization
+- **Resource Management**: Proper Vulkan resource cleanup and memory management with enhanced shutdown sequencing
 
 ## Prerequisites
 
 1. **Rust** - Install from [rustup.rs](https://rustup.rs/)
-2. **Vulkan SDK** - Download and install from [LunarG](https://vulkan.lunarg.com/)
+2. **Vulkan SDK** - Download and install from [LunarG](https://vulkan.lunarg.com/) - Required for Ash Vulkan bindings and runtime
 3. **Visual Studio Build Tools** (on Windows) - Required for building native dependencies
 
 ## Building and Running
@@ -34,15 +34,7 @@ git clone https://github.com/Filyus/vulkan-app.git
 cd vulkan-app
 ```
 
-2. Compile shaders (required after shader changes):
-```bash
-cd shaders
-glslc sdf.vert -o sdf.vert.spv
-glslc sdf.frag -o sdf.frag.spv
-cd ..
-```
-
-3. Build and run the application:
+2. Build and run the application (shaders are compiled automatically):
 ```bash
 cargo run
 ```
@@ -92,8 +84,9 @@ src/
 │   ├── instance.rs     # Vulkan instance management
 │   ├── device.rs       # Vulkan device management
 │   ├── swapchain.rs    # Swapchain handling
-│   ├── pipeline.rs     # Graphics pipeline
-│   └── renderer.rs     # Main renderer
+│   ├── pipeline.rs     # Graphics pipeline with runtime shader compilation
+│   ├── shader_compiler.rs  # Runtime shader compilation and caching system
+│   └── renderer.rs     # Main renderer with enhanced cleanup
 └── hud/                 # HUD and UI system
 │   ├── mod.rs          # HUD system integration and management
 │   ├── toolbar.rs      # Interactive toolbar with buttons
@@ -158,42 +151,49 @@ For optimized release builds:
 cargo build --release
 ```
 
-## Shader Compilation
+## Runtime Shader Compilation
 
-This application uses GLSL shaders that must be compiled to SPIR-V bytecode before running. The shader compilation step is essential when:
+This application features advanced runtime shader compilation that automatically compiles GLSL shaders to SPIR-V bytecode during application startup, eliminating the need for manual shader compilation steps.
 
-- First building the application
-- Making changes to shader source files
-- Updating shader uniforms or data structures
+### Features
 
-### Compiling Shaders
+- **Automatic Compilation**: Shaders are compiled automatically when the application starts
+- **Shader Caching**: Compiled shaders are cached in memory for faster subsequent compilations
+- **Debug Support**: Debug information is automatically included in debug builds
+- **Optimization**: Performance optimization levels are applied in release builds
+- **Error Handling**: Comprehensive error reporting for shader compilation failures
+- **Preloading**: Common shaders are preloaded during startup for faster initialization
 
-Use the GLSLC compiler (part of the Vulkan SDK) to compile shaders:
+### Shader Configuration
 
-```bash
-cd shaders
-glslc sdf.vert -o sdf.vert.spv
-glslc sdf.frag -o sdf.frag.spv
-```
+The shader compilation system is configured through `src/config.rs`:
+
+- **Shader Cache**: Enabled by default for faster compilation
+- **Debug Info**: Automatically enabled in debug builds
+- **Optimization**: Performance optimization in release, zero optimization in debug
+- **Preloading**: Common shaders are preloaded during startup
 
 ### Shader Files
 
 - **sdf.vert**: Vertex shader for fullscreen quad rendering
 - **sdf.frag**: Fragment shader implementing SDF ray marching with proper aspect ratio handling
+- **imgui.vert**: ImGui vertex shader for UI rendering
+- **imgui.frag**: ImGui fragment shader for UI rendering
 
 The shaders include:
 - Proper aspect ratio correction to prevent stretching during window resize
 - Push constants for dynamic window data (resolution, time, aspect ratio)
 - SDF ray marching implementation with multiple shape support
 - Phong lighting model with shadows
+- ImGui integration for UI rendering
 
 ## Troubleshooting
 
 If you encounter build errors:
 
-1. **Vulkan SDK**: Ensure the Vulkan SDK is properly installed and the `VULKAN_SDK` environment variable is set
+1. **Vulkan SDK**: Ensure the Vulkan SDK is properly installed and the `VULKAN_SDK` environment variable is set (required for Ash Vulkan bindings)
 2. **Build Tools**: Make sure you have the Visual Studio Build Tools installed (on Windows)
-3. **Shader Compilation**: Always compile shaders after making changes to GLSL files
+3. **ShaderC**: The shaderc library is used for runtime shader compilation and is included as a dependency (no manual shader compilation needed)
 4. **Clean Build**: Try running `cargo clean` and then `cargo build` to force a clean rebuild
 
 If the app fails to run with validation layer errors, it will automatically fall back to running without validation layers.
@@ -212,6 +212,12 @@ This project demonstrates advanced SDF rendering techniques with ECS architectur
 - Enhanced HUD features (more toolbar buttons, context menus, panels)
 - Advanced UI interactions (drag-and-drop, keyboard shortcuts, customizable layouts)
 - ImGui integration improvements and additional UI components
+- **Shader System Enhancements**:
+  - Compute shader support
+  - Shader hot-reloading implementation
+  - Shader variant management
+  - Persistent shader cache to disk
+  - Shader dependency tracking
 
 ## License
 
