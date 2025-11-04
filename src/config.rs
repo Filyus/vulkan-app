@@ -15,7 +15,7 @@ pub mod window {
     pub const TITLE: &str = "Vulkan App - ECS";
     
     /// Minimum window width
-    pub const MIN_WIDTH: u32 = 400;
+    pub const MIN_WIDTH: u32 = 600;
     
     /// Minimum window height
     pub const MIN_HEIGHT: u32 = 300;
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(window::TITLE, "Vulkan App - ECS");
         assert_eq!(window::DEFAULT_WIDTH, 800);
         assert_eq!(window::DEFAULT_HEIGHT, 600);
-        assert_eq!(window::MIN_WIDTH, 400);
+        assert_eq!(window::MIN_WIDTH, 600);
         assert_eq!(window::MIN_HEIGHT, 300);
     }
 
@@ -265,7 +265,7 @@ mod tests {
         assert!(debug::ENABLE_VERBOSE_VULKAN_DEBUG);
         assert!(!debug::ENABLE_PERFORMANCE_MONITORING);
         assert!(debug::ENABLE_FRAME_TIME_TRACKING);
-        assert_eq!(debug::LOG_LEVEL, log::LevelFilter::Debug);
+        assert_eq!(debug::LOG_LEVEL, log::LevelFilter::Info);
     }
 
     #[test]

@@ -189,9 +189,14 @@ impl ECSWorld {
     /// * Ok(()) if all systems executed successfully
     /// * Err if any system failed to execute
     pub fn execute(&mut self, window: &Window, delta_time: f32) -> Result<()> {
+        // Get hot reload state before borrowing HUD
+        let hot_reload_enabled = self.is_hot_reload_enabled();
+
         // Update HUD first
         if let Some(ref mut hud) = self.hud {
             hud.update(window, delta_time);
+            // Update hot reload button state to match current hot reload status
+            hud.toolbar.update_hot_reload_button_state(hot_reload_enabled);
         }
         
         self.schedule.execute(&mut self.world, &mut self.resources);
@@ -472,7 +477,8 @@ impl ECSWorld {
             .map(|manager| manager.is_enabled())
             .unwrap_or(false)
     }
-    
+
+        
     /// Manually trigger a shader reload
     ///
     /// # Arguments
