@@ -269,7 +269,8 @@ impl ApplicationHandler for AppState {
                         }
                     }
                     info!("=== HOT RELOAD INITIALIZATION COMPLETED ===");
-                    
+
+                                        
                     self.ecs_world = Some(ecs_world);
                     info!("=== ECS WORLD INITIALIZATION COMPLETED ===");
                     info!("ECS world initialized successfully!");
@@ -501,6 +502,43 @@ impl ApplicationHandler for AppState {
                     // Draw the main 3D scene first
                     if let Err(e) = ecs_world.draw_frame() {
                         error!("Error during draw frame: {}", e);
+                    }
+
+                    // Check for button clicks after rendering (when ImGui state is available)
+                    let (hot_reload_toggled, reload_clicked) = if let Some(ref hud) = ecs_world.hud {
+                        (hud.was_hot_reload_toggled(), hud.was_reload_button_clicked())
+                    } else {
+                        (None, false)
+                    };
+
+                    // Handle hot reload checkbox toggle
+                    if let Some(new_state) = hot_reload_toggled {
+                        info!("Hot reload checkbox toggled to: {}", new_state);
+                        match ecs_world.set_hot_reload_enabled(new_state) {
+                            Ok(()) => {
+                                info!("Hot reload state set to: {}", new_state);
+                            }
+                            Err(e) => {
+                                error!("Failed to set hot reload state: {}", e);
+                            }
+                        }
+                    }
+
+                    // Handle manual reload button click
+                    if reload_clicked {
+                        info!("Manual reload button clicked!");
+                        // Try to reload all shader files
+                        let shader_files = ["shaders/sdf.vert", "shaders/sdf.frag", "shaders/imgui.vert", "shaders/imgui.frag"];
+                        for shader_path in &shader_files {
+                            match ecs_world.reload_shader(shader_path) {
+                                Ok(()) => {
+                                    info!("Successfully reloaded shader: {}", shader_path);
+                                }
+                                Err(e) => {
+                                    error!("Failed to reload shader {}: {}", shader_path, e);
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -266,6 +266,18 @@ impl HUD {
     
     
     /// Update the HUD state (called each frame before rendering)
+
+    /// Check if manual reload button was clicked
+    pub fn was_reload_button_clicked(&self) -> bool {
+        self.toolbar.was_button_clicked("reload_shaders")
+    }
+
+    /// Check if hot reload checkbox was toggled
+    pub fn was_hot_reload_toggled(&self) -> Option<bool> {
+        self.toolbar.was_hot_reload_toggled()
+    }
+
+    /// Update HUD state and animations
     ///
     /// # Arguments
     /// * `window` - Current window for input handling
@@ -302,7 +314,8 @@ impl HUD {
         // Update context
         self.context.io_mut().delta_time = delta_time;
     }
-    
+
+        
     
     /// Render the HUD
     ///
@@ -444,18 +457,9 @@ impl HUD {
         if let Some(toggle_button) = self.toolbar.get_button_mut("toggle_hot_reload") {
             let is_enabled = ecs_world.is_hot_reload_enabled();
             toggle_button.is_active = is_enabled;
-            
-            let ecs_world_ptr = ecs_world as *mut crate::ecs::world::ECSWorld;
-            toggle_button.action = Some(Box::new(move || {
-                // Safe to access because we know the ECS world lives longer than the callback
-                let ecs_world = unsafe { &mut *ecs_world_ptr };
-                let new_state = !ecs_world.is_hot_reload_enabled();
-                if let Err(e) = ecs_world.set_hot_reload_enabled(new_state) {
-                    log::error!("Failed to toggle hot reload: {}", e);
-                } else {
-                    log::info!("Hot reload {}", if new_state { "enabled" } else { "disabled" });
-                }
-            }));
+
+            // Create a global flag to track the last known state (simpler approach)
+            // Note: This is a temporary solution - in a real app you'd want a proper event system
         }
         
         // Set up manual reload button

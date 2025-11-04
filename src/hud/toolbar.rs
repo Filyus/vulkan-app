@@ -198,7 +198,7 @@ impl Toolbar {
                 buttons: vec![
                     ToolbarButton {
                         id: "toggle_hot_reload".to_string(),
-                        icon: "🔥 Hot Reload",
+                        icon: "Hot Reload",
                         tooltip: "Toggle hot shader reload (F2)",
                         is_active: false,
                         is_enabled: true,
@@ -217,7 +217,7 @@ impl Toolbar {
                     },
                     ToolbarButton {
                         id: "reload_shaders".to_string(),
-                        icon: "🔄 Reload",
+                        icon: "Reload",
                         tooltip: "Manual shader reload (F3)",
                         is_active: false,
                         is_enabled: true,
@@ -330,18 +330,72 @@ impl Toolbar {
     
     /// Render the actual toolbar content inside the window
     fn render_toolbar_content(&mut self, ui: &Ui) {
-        // Use a group for better layout control
+        // Calculate available width for right-aligned groups
+        let available_width = ui.io().display_size[0];
+
+        // First group (Add Objects) - left aligned
         ui.group(|| {
-            // Render groups with their buttons in a clean horizontal layout
-            let group_count = self.groups.len();
-            for i in 0..group_count {
-                // Render buttons in this group
-                let button_count = self.groups[i].buttons.len();
-                for j in 0..button_count {
-                    self.render_button_by_indices(ui, i, j);
-                    if j < button_count - 1 {
-                        ui.same_line();
+            // Render buttons in the first group
+            let button_count = self.groups[0].buttons.len();
+            for j in 0..button_count {
+                self.render_button_by_indices(ui, 0, j);
+                if j < button_count - 1 {
+                    ui.same_line();
+                }
+            }
+        });
+
+        // Move to the right side for Hot Reload group
+        ui.same_line();
+
+        // Calculate total width needed for hot reload buttons
+        let mut hot_reload_width = 0.0;
+        for button in &self.groups[1].buttons {
+            if button.id == "toggle_hot_reload" {
+                // For checkbox, use standard checkbox width + text
+                let checkbox_text = "Hot Reload";
+                let text_width = ui.calc_text_size(checkbox_text)[0];
+                // Checkbox is typically ~16px wide plus text plus spacing
+                hot_reload_width += 16.0 + text_width + 8.0;
+            } else {
+                // For regular buttons, use existing calculation
+                let text_width = ui.calc_text_size(button.icon)[0] + 20.0;
+                hot_reload_width += text_width + 8.0; // 8.0 is item spacing
+            }
+        }
+
+        // Position hot reload buttons to the right
+        let right_position = available_width - hot_reload_width - 24.0; // 24.0 for right margin
+        ui.set_cursor_pos([right_position, ui.cursor_pos()[1]]);
+
+        // Second group (Hot Reload Controls) - right aligned
+        ui.group(|| {
+            // Render hot reload checkbox using standard ImGui checkbox
+            if let Some(button) = self.groups.get_mut(1).and_then(|g| g.buttons.get_mut(0)) {
+                if button.id == "toggle_hot_reload" {
+                    let mut hot_reload_state = button.is_active;
+                    let clicked = ui.checkbox("Hot Reload", &mut hot_reload_state);
+
+                    // Only update state if checkbox was clicked and state actually changed
+                    if clicked {
+                        // Mark button as clicked for external detection
+                        button.state = ButtonState::Active;
+                        button.click_animation = 1.0;
+                        button.last_interaction = Some(Instant::now());
+
+                        // Update internal state to match checkbox state
+                        button.is_active = hot_reload_state;
                     }
+
+                    ui.same_line();
+                }
+            }
+
+            // Render remaining buttons (like Reload)
+            for j in 1..self.groups[1].buttons.len() {
+                self.render_button_by_indices(ui, 1, j);
+                if j < self.groups[1].buttons.len() - 1 {
+                    ui.same_line();
                 }
             }
         });
@@ -383,12 +437,28 @@ impl Toolbar {
     /// Render button by indices to avoid borrowing issues
     fn render_button_by_indices(&mut self, ui: &Ui, group_idx: usize, button_idx: usize) {
         if let Some(button) = self.groups.get_mut(group_idx).and_then(|g| g.buttons.get_mut(button_idx)) {
-            // Use the full text as button label
-            let button_label = button.icon.to_string();
+            // Use dynamic button label based on state for hot reload button
+            let button_label = if button.id == "toggle_hot_reload" {
+                if button.is_active {
+                    "(ON) Hot Reload".to_string()
+                } else {
+                    "(OFF) Hot Reload".to_string()
+                }
+            } else {
+                button.icon.to_string()
+            };
             
-            // Calculate button size based on text content
-            let text_width = ui.calc_text_size(&button_label)[0] + 20.0; // Add padding
-            let base_button_size = [text_width, 28.0];
+            // Calculate button size using maximum width to maintain consistent alignment
+            let (text1, text2) = if button.id == "toggle_hot_reload" {
+                ("● Hot Reload", "○ Hot Reload")
+            } else {
+                (button_label.as_str(), button_label.as_str())
+            };
+
+            let text_width1 = ui.calc_text_size(text1)[0] + 20.0;
+            let text_width2 = ui.calc_text_size(text2)[0] + 20.0;
+            let max_text_width = text_width1.max(text_width2);
+            let base_button_size = [max_text_width, 28.0];
             
             // Use consistent button size (no click animation scaling)
             let button_size = base_button_size;
@@ -444,12 +514,18 @@ impl Toolbar {
                 button.state = ButtonState::Active;
                 button.click_animation = 1.0;
                 button.last_interaction = Some(Instant::now());
-                
+
+                // For hot reload button, toggle the active state immediately for better visual feedback
+                if button.id == "toggle_hot_reload" {
+                    button.is_active = !button.is_active;
+                    debug!("Hot reload button active state toggled to: {}", button.is_active);
+                }
+
                 // Execute action
                 if let Some(ref action) = button.action {
                     action();
                 }
-                
+
                 // Visual feedback - log the interaction
                 debug!("Button '{}' clicked and action executed!", button.id);
             }
@@ -704,6 +780,32 @@ impl Toolbar {
         }
         None
     }
+
+    /// Check if a button was clicked this frame
+    pub fn was_button_clicked(&self, id: &str) -> bool {
+        for group in &self.groups {
+            for button in &group.buttons {
+                if button.id == id && button.id != "toggle_hot_reload" && button.state == ButtonState::Active {
+                    if button.last_interaction.map_or(false, |t| t.elapsed().as_secs_f32() < 0.1) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if hot reload checkbox was toggled
+    pub fn was_hot_reload_toggled(&self) -> Option<bool> {
+        if let Some(button) = self.groups.get(1).and_then(|g| g.buttons.get(0)) {
+            if button.id == "toggle_hot_reload" && button.state == ButtonState::Active {
+                if button.last_interaction.map_or(false, |t| t.elapsed().as_secs_f32() < 0.1) {
+                    return Some(button.is_active);
+                }
+            }
+        }
+        None
+    }
     
     /// Add visual feedback for button interactions
     #[allow(dead_code)]
@@ -735,6 +837,16 @@ impl Toolbar {
         if let Some(button) = self.get_button(id) {
             button.hover_progress = 0.5; // Start with half hover animation
             debug!("Pulse effect created for button '{}'", id);
+        }
+    }
+
+    /// Update hot reload button state to match ECS world state
+    pub fn update_hot_reload_button_state(&mut self, is_enabled: bool) {
+        if let Some(button) = self.get_button_mut("toggle_hot_reload") {
+            if button.is_active != is_enabled {
+                button.is_active = is_enabled;
+                debug!("Hot reload button state updated to: {}", is_enabled);
+            }
         }
     }
 }
