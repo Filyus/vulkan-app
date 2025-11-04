@@ -18,6 +18,7 @@ A comprehensive Vulkan application written in Rust featuring Entity Component Sy
 - **Debug Support**: Extensive debugging utilities and validation layer integration
 - **Configuration System**: Centralized configuration for window, Vulkan, rendering, and debug settings
 - **Runtime Shader Compilation**: Automatic shader compilation on startup with caching and optimization
+- **🔥 Shader Hot Reload**: Real-time shader reloading with file system monitoring and immediate pipeline updates
 - **Resource Management**: Proper Vulkan resource cleanup and memory management with enhanced shutdown sequencing
 
 ## Prerequisites
@@ -86,6 +87,7 @@ src/
 │   ├── swapchain.rs    # Swapchain handling
 │   ├── pipeline.rs     # Graphics pipeline with runtime shader compilation
 │   ├── shader_compiler.rs  # Runtime shader compilation and caching system
+│   ├── shader_watcher.rs   # Hot reload system with file system monitoring
 │   └── renderer.rs     # Main renderer with enhanced cleanup
 └── hud/                 # HUD and UI system
 │   ├── mod.rs          # HUD system integration and management
@@ -114,6 +116,7 @@ src/
 - `imgui` - Immediate mode GUI library
 - `imgui-winit-support` - Winit integration for ImGui
 - `imgui-glow-renderer` - OpenGL renderer for ImGui (fallback)
+- `notify` - File system monitoring for hot reload functionality
 
 ## Configuration
 
@@ -187,6 +190,56 @@ The shaders include:
 - Phong lighting model with shadows
 - ImGui integration for UI rendering
 
+## 🔥 Shader Hot Reload System
+
+This application features an advanced shader hot reload system that allows real-time shader modification without restarting the application. Perfect for rapid prototyping and development workflow.
+
+### Features
+
+- **Real-time File Monitoring**: Automatic detection of shader file changes using the `notify` crate
+- **Immediate Pipeline Updates**: Shaders are recompiled and pipelines are recreated instantly
+- **Thread-safe Operations**: Hot reload manager works on a separate thread to prevent UI blocking
+- **Command Buffer Synchronization**: Automatic command buffer recreation after pipeline updates
+- **HUD Integration**: Hot reload controls are integrated into the toolbar interface
+- **Error Recovery**: Graceful handling of compilation errors with fallback to previous working state
+- **Performance Optimized**: Debounced file watching prevents excessive recompilation
+
+### Hot Reload Configuration
+
+The hot reload system is configured through `src/vulkan/shader_watcher.rs`:
+
+- **File Watching**: Monitors `src/shaders/` directory for changes
+- **Debounce Delay**: 100ms debounce to prevent rapid recompilation
+- **Supported Formats**: `.vert`, `.frag`, `.comp`, `.geom`, `.tesc`, `.tese` shader files
+- **Callback System**: Event-driven architecture for pipeline updates
+- **Thread Safety**: Arc<Mutex<>> based sharing for concurrent access
+
+### Usage
+
+1. **Automatic Mode**: Hot reload is enabled by default in debug builds
+2. **Manual Toggle**: Use the HUD toolbar button to enable/disable hot reload
+3. **Real-time Editing**: Edit any shader file in `src/shaders/` and see changes immediately
+4. **Error Handling**: Compilation errors are logged but won't crash the application
+
+### File Structure
+
+```
+src/shaders/
+├── sdf.vert        # Vertex shader (editable for hot reload)
+├── sdf.frag        # Fragment shader (editable for hot reload)
+├── imgui.vert      # ImGui vertex shader
+├── imgui.frag      # ImGui fragment shader
+└── *.spv          # Compiled SPIR-V binaries (auto-generated)
+```
+
+### Implementation Details
+
+- **HotReloadManager**: Main coordinator for shader watching and pipeline updates
+- **ShaderWatcher**: File system monitoring with debounced event handling
+- **Pipeline Integration**: Direct pipeline recreation with minimal frame drops
+- **Resource Management**: Proper cleanup and recreation of Vulkan resources
+- **ECS Integration**: Hot reload status is accessible through the ECS world system
+
 ## Troubleshooting
 
 If you encounter build errors:
@@ -214,10 +267,10 @@ This project demonstrates advanced SDF rendering techniques with ECS architectur
 - ImGui integration improvements and additional UI components
 - **Shader System Enhancements**:
   - Compute shader support
-  - Shader hot-reloading implementation
   - Shader variant management
   - Persistent shader cache to disk
   - Shader dependency tracking
+  - Advanced hot reload features (conditional compilation, shader parameter tweaking)
 
 ## License
 

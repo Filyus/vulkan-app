@@ -360,7 +360,7 @@ pub fn init_logging() -> Result<()> {
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
-                "{}[{}][{}] {}",
+                "{} [{}][{}] {}",
                 chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"),
                 record.target(),
                 record.level(),

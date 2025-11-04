@@ -35,7 +35,7 @@ pub struct ToolbarButton {
     pub is_enabled: bool,
     
     /// Button action callback
-    pub action: Option<Box<dyn Fn()>>,
+    pub action: Option<Box<dyn Fn() + 'static>>,
     
     /// Last interaction time (for animation)
     pub last_interaction: Option<Instant>,
@@ -187,6 +187,52 @@ impl Toolbar {
                         hover_progress: 0.0,
                         click_animation: 0.0,
                         color_theme: ButtonColorTheme::default(),
+                    },
+                ],
+                collapsible: false,
+                is_collapsed: false,
+            },
+            // Hot Reload Controls
+            ToolbarGroup {
+                name: "",
+                buttons: vec![
+                    ToolbarButton {
+                        id: "toggle_hot_reload".to_string(),
+                        icon: "🔥 Hot Reload",
+                        tooltip: "Toggle hot shader reload (F2)",
+                        is_active: false,
+                        is_enabled: true,
+                        action: None, // Will be set by HUD
+                        last_interaction: None,
+                        state: ButtonState::Normal,
+                        hover_progress: 0.0,
+                        click_animation: 0.0,
+                        color_theme: ButtonColorTheme {
+                            normal: [0.3, 0.2, 0.4, 1.0],      // Purple base
+                            hovered: [0.4, 0.3, 0.5, 1.0],     // Lighter purple
+                            active: [0.5, 0.4, 0.6, 1.0],      // Bright purple
+                            disabled: [0.2, 0.15, 0.3, 0.5],   // Desaturated purple
+                            text: [1.0, 1.0, 1.0, 1.0],
+                        },
+                    },
+                    ToolbarButton {
+                        id: "reload_shaders".to_string(),
+                        icon: "🔄 Reload",
+                        tooltip: "Manual shader reload (F3)",
+                        is_active: false,
+                        is_enabled: true,
+                        action: None, // Will be set by HUD
+                        last_interaction: None,
+                        state: ButtonState::Normal,
+                        hover_progress: 0.0,
+                        click_animation: 0.0,
+                        color_theme: ButtonColorTheme {
+                            normal: [0.2, 0.4, 0.3, 1.0],      // Green base
+                            hovered: [0.3, 0.5, 0.4, 1.0],     // Lighter green
+                            active: [0.4, 0.6, 0.5, 1.0],      // Bright green
+                            disabled: [0.15, 0.3, 0.2, 0.5],   // Desaturated green
+                            text: [1.0, 1.0, 1.0, 1.0],
+                        },
                     },
                 ],
                 collapsible: false,
@@ -496,6 +542,10 @@ impl Toolbar {
                 ui.text_disabled("Shortcut: Ctrl+N");
             } else if button.id.contains("box") {
                 ui.text_disabled("Shortcut: Ctrl+B");
+            } else if button.id.contains("hot_reload") {
+                ui.text_disabled("Shortcut: F2");
+            } else if button.id.contains("reload") {
+                ui.text_disabled("Shortcut: F3");
             }
             
             // Show status
@@ -580,6 +630,19 @@ impl Toolbar {
     /// Get button by ID
     #[allow(dead_code)]
     pub fn get_button(&mut self, id: &str) -> Option<&mut ToolbarButton> {
+        for group in &mut self.groups {
+            for button in &mut group.buttons {
+                if button.id == id {
+                    return Some(button);
+                }
+            }
+        }
+        None
+    }
+
+    /// Get button by ID (mutable reference)
+    #[allow(dead_code)]
+    pub fn get_button_mut(&mut self, id: &str) -> Option<&mut ToolbarButton> {
         for group in &mut self.groups {
             for button in &mut group.buttons {
                 if button.id == id {

@@ -16,6 +16,7 @@ use ecs::ECSWorld;
 use error::Result;
 use log::{info, error, debug};
 
+
 struct AppState {
     window: Option<Window>,
     vulkan_renderer: Option<VulkanRenderer>,
@@ -235,6 +236,11 @@ impl ApplicationHandler for AppState {
                             info!("=== HUD INITIALIZED SUCCESSFULLY ===");
                             info!("HUD initialized successfully!");
                             debug!("HUD is now available: {:?}", ecs_world.hud.is_some());
+                            
+                            // Set up hot reload callbacks after HUD is initialized
+                            // Note: We'll skip callback setup for now due to borrowing issues
+                            // The F2/F3 keyboard shortcuts in main.rs will handle hot reload functionality
+                            info!("Hot reload callbacks skipped due to borrowing constraints - using keyboard shortcuts instead");
                         }
                         Err(e) => {
                             error!("=== HUD INITIALIZATION FAILED ===");
@@ -245,6 +251,24 @@ impl ApplicationHandler for AppState {
                     }
                     info!("=== HUD INITIALIZATION COMPLETED ===");
                     debug!("Final HUD state: {:?}", ecs_world.hud.is_some());
+                    
+                    // Initialize hot reload after HUD is set up
+                    info!("=== STARTING HOT RELOAD INITIALIZATION ===");
+                    debug!("About to initialize hot reload");
+                    match ecs_world.init_hot_reload() {
+                        Ok(()) => {
+                            info!("=== HOT RELOAD INITIALIZED SUCCESSFULLY ===");
+                            info!("Hot reload initialized successfully!");
+                            debug!("Hot reload is now available: {:?}", ecs_world.is_hot_reload_enabled());
+                        }
+                        Err(e) => {
+                            error!("=== HOT RELOAD INITIALIZATION FAILED ===");
+                            error!("Failed to initialize hot reload: {}, continuing without hot reload", e);
+                            error!("Hot reload initialization error details: {:?}", e);
+                            debug!("Hot reload is still not available: {:?}", ecs_world.is_hot_reload_enabled());
+                        }
+                    }
+                    info!("=== HOT RELOAD INITIALIZATION COMPLETED ===");
                     
                     self.ecs_world = Some(ecs_world);
                     info!("=== ECS WORLD INITIALIZATION COMPLETED ===");
@@ -328,6 +352,10 @@ impl ApplicationHandler for AppState {
                     
                     info!("GPU idle confirmed, cleaning up HUD system");
                     ecs_world.cleanup_hud();
+
+                    // Clean up hot reload manager to break reference cycles
+                    info!("Cleaning up hot reload manager");
+                    ecs_world.cleanup_hot_reload();
                 }
                   
                 info!("Graceful shutdown completed, exiting");
@@ -366,6 +394,57 @@ impl ApplicationHandler for AppState {
                 info!("F1 pressed - toggling HUD visibility");
                 if let Some(ref mut ecs_world) = self.ecs_world {
                     ecs_world.toggle_hud();
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    state: winit::event::ElementState::Pressed,
+                    logical_key: Key::Named(NamedKey::F2),
+                    ..
+                },
+                ..
+            } => {
+                // Toggle hot reload on F2 press
+                info!("F2 pressed - toggling hot reload");
+                if let Some(ref mut ecs_world) = self.ecs_world {
+                    let current_state = ecs_world.is_hot_reload_enabled();
+                    match ecs_world.set_hot_reload_enabled(!current_state) {
+                        Ok(()) => {
+                            info!("Hot reload toggled to: {}", !current_state);
+                        }
+                        Err(e) => {
+                            error!("Failed to toggle hot reload: {}", e);
+                        }
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    state: winit::event::ElementState::Pressed,
+                    logical_key: Key::Named(NamedKey::F3),
+                    ..
+                },
+                ..
+            } => {
+                // Manual shader reload on F3 press
+                info!("F3 pressed - manual shader reload");
+                if let Some(ref ecs_world) = self.ecs_world {
+                    // Reload the main SDF shaders
+                    let shaders_to_reload = [
+                        "shaders/sdf.vert",
+                        "shaders/sdf.frag",
+                    ];
+                    
+                    for shader_path in &shaders_to_reload {
+                        match ecs_world.reload_shader(shader_path) {
+                            Ok(()) => {
+                                info!("Manual reload successful for: {}", shader_path);
+                            }
+                            Err(e) => {
+                                error!("Manual reload failed for {}: {}", shader_path, e);
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::Resized(new_size) => {
