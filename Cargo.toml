@@ -19,5 +19,8 @@ chrono = { version = "0.4.42", features = ["serde"] }
 imgui = "0.12.0"
 imgui-winit-support = "0.13.0"
 
+# Shader compilation dependencies
+shaderc = "0.10.1"
+
 [dev-dependencies]
 mockall = "0.13.1"

@@ -252,6 +252,26 @@ impl ECSWorld {
         }
     }
     
+    /// Wait for GPU to complete all pending operations
+    /// This should be called before resource cleanup to ensure no command buffers are in use
+    pub fn wait_for_gpu_idle(&mut self) -> Result<()> {
+        info!("Waiting for GPU to complete all pending operations");
+        
+        let vulkan_renderer = self.resources.get_mut::<VulkanRenderer>()
+            .ok_or_else(|| EcsError::ResourceAccess("VulkanRenderer resource not found in ECS world".to_string()))?;
+        
+        unsafe {
+            vulkan_renderer.device.device.device_wait_idle()
+                .map_err(|e| {
+                    error!("Failed to wait for GPU idle: {:?}", e);
+                    EcsError::ResourceAccess(format!("Failed to wait for GPU idle: {:?}", e))
+                })?;
+        }
+        
+        info!("GPU idle confirmed, safe to proceed with resource cleanup");
+        Ok(())
+    }
+    
     /// Clean up HUD system manually
     /// This should be called before the Vulkan renderer is destroyed
     /// to ensure proper resource cleanup order
@@ -259,6 +279,7 @@ impl ECSWorld {
         if self.hud.is_some() {
             info!("Manually cleaning up HUD system");
             // Explicitly drop the HUD to trigger cleanup
+            // The HUD's Drop implementation will handle proper resource cleanup
             drop(std::mem::replace(&mut self.hud, None));
             info!("HUD system cleaned up manually");
         }

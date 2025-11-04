@@ -3,7 +3,8 @@ use ash::Device;
 use std::ffi::CStr;
 use crate::error::{Result, VulkanError};
 use crate::config;
-use log::{debug, info};
+use crate::vulkan::shader_compiler::ShaderCompiler;
+use log::{debug, info, warn};
 
 /// Vulkan pipeline wrapper with proper resource management
 ///
@@ -21,6 +22,10 @@ pub struct VulkanPipeline {
     
     /// The device reference for cleanup
     pub device: Device,
+    
+    /// Shader compiler for runtime compilation
+    #[allow(dead_code)]
+    shader_compiler: ShaderCompiler,
 }
 
 impl VulkanPipeline {
@@ -38,19 +43,47 @@ impl VulkanPipeline {
     pub fn new(device: &Device, swapchain_format: vk::Format) -> Result<Self> {
         info!("Creating Vulkan pipeline");
         
+        // Initialize shader compiler
+        let mut shader_compiler = ShaderCompiler::new()?;
+        
+        // Configure shader compiler based on settings
+        shader_compiler.configure(
+            config::shader::ENABLE_SHADER_CACHE,
+            config::shader::ENABLE_SHADER_DEBUG,
+            config::shader::OPTIMIZATION_LEVEL
+        );
+        
+        // Preload shaders if enabled
+        if config::shader::PRELOAD_SHADERS {
+            info!("Preloading shaders...");
+            let shaders_to_preload = [
+                config::shader::SDF_VERTEX_SHADER,
+                config::shader::SDF_FRAGMENT_SHADER,
+                config::shader::IMGUI_VERTEX_SHADER,
+                config::shader::IMGUI_FRAGMENT_SHADER,
+            ];
+            
+            if let Err(e) = shader_compiler.preload_shaders(&shaders_to_preload) {
+                warn!("Failed to preload some shaders: {}. Continuing with on-demand compilation.", e);
+            } else {
+                info!("Shader preloading completed successfully");
+            }
+        }
+        
         let render_pass = Self::create_render_pass(device, swapchain_format)?;
         debug!("Render pass created successfully");
         
-        let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(device, render_pass)?;
+        let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(device, render_pass, &mut shader_compiler)?;
         debug!("Graphics pipeline created successfully");
         
-        info!("Vulkan pipeline created successfully");
+        info!("Vulkan pipeline created successfully with runtime shader compilation");
         
         Ok(Self {
             render_pass,
             pipeline_layout,
             graphics_pipeline,
             device: device.clone(), // Clone device for cleanup
+            shader_compiler,
         })
     }
     
@@ -115,25 +148,31 @@ impl VulkanPipeline {
     /// Returns an error if pipeline creation fails
     fn create_graphics_pipeline(
         device: &Device,
-        render_pass: vk::RenderPass
+        render_pass: vk::RenderPass,
+        shader_compiler: &mut ShaderCompiler
     ) -> Result<(vk::PipelineLayout, vk::Pipeline)> {
-        debug!("Creating graphics pipeline");
+        debug!("Creating graphics pipeline with runtime shader compilation");
         
-        // Load SDF shaders
-        let vert_shader_code = include_bytes!("../../shaders/sdf.vert.spv");
-        let frag_shader_code = include_bytes!("../../shaders/sdf.frag.spv");
+        // Compile shaders at runtime
+        let vert_shader_code = shader_compiler.compile_file(
+            config::shader::SDF_VERTEX_SHADER,
+            "main"
+        )?;
         
-        if vert_shader_code.is_empty() || frag_shader_code.is_empty() {
-            return Err(VulkanError::ShaderCompilation(
-                "Shader files are empty. Please compile GLSL shaders to SPIR-V using glslc.".to_string()
-            ).into());
-        }
+        let frag_shader_code = shader_compiler.compile_file(
+            config::shader::SDF_FRAGMENT_SHADER,
+            "main"
+        )?;
         
-        debug!("Loading vertex shader ({} bytes)", vert_shader_code.len());
-        debug!("Loading fragment shader ({} bytes)", frag_shader_code.len());
+        debug!("Compiled vertex shader ({} words)", vert_shader_code.len());
+        debug!("Compiled fragment shader ({} words)", frag_shader_code.len());
         
-        let vert_shader_module = Self::create_shader_module(device, vert_shader_code)?;
-        let frag_shader_module = Self::create_shader_module(device, frag_shader_code)?;
+        // Convert Vec<u32> to &[u8] for shader module creation
+        let vert_shader_bytes = bytemuck::cast_slice(&vert_shader_code);
+        let frag_shader_bytes = bytemuck::cast_slice(&frag_shader_code);
+        
+        let vert_shader_module = Self::create_shader_module(device, vert_shader_bytes)?;
+        let frag_shader_module = Self::create_shader_module(device, frag_shader_bytes)?;
         
         let vert_stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
@@ -185,10 +224,11 @@ impl VulkanPipeline {
             .attachments(&color_blend_attachments);
         
         // Push constant range for window data (both vertex and fragment shaders)
+        // Updated to match the actual push constant block size in the fragment shader (52 bytes)
         let push_constant_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
-            size: 16, // vec2 + float + float = 4 + 4 + 4 + 4 = 16 bytes
+            size: 52, // Updated to match fragment shader push constant block size
         };
         let push_constant_ranges = [push_constant_range];
         
@@ -267,6 +307,53 @@ impl VulkanPipeline {
         
         debug!("Shader module created successfully");
         Ok(shader_module)
+    }
+    
+    /// Recompile shaders and recreate the pipeline
+    ///
+    /// This method allows for hot-reloading of shaders during development
+    ///
+    /// # Returns
+    /// Ok(()) if recompilation succeeded
+    /// Err if recompilation failed
+    ///
+    /// # Errors
+    /// Returns an error if shader compilation or pipeline recreation fails
+    #[allow(dead_code)]
+    pub fn recompile_shaders(&mut self) -> Result<()> {
+        info!("Recompiling shaders and recreating pipeline");
+        
+        // Clear shader cache to force recompilation
+        self.shader_compiler.clear_cache();
+        
+        // Recreate the graphics pipeline with fresh shaders
+        let (pipeline_layout, graphics_pipeline) = Self::create_graphics_pipeline(
+            &self.device,
+            self.render_pass,
+            &mut self.shader_compiler
+        )?;
+        
+        // Clean up old pipeline and layout
+        unsafe {
+            self.device.destroy_pipeline(self.graphics_pipeline, None);
+            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
+        }
+        
+        // Update with new pipeline
+        self.pipeline_layout = pipeline_layout;
+        self.graphics_pipeline = graphics_pipeline;
+        
+        info!("Shader recompilation completed successfully");
+        Ok(())
+    }
+    
+    /// Get shader compiler statistics
+    ///
+    /// # Returns
+    /// Tuple of (cached_shaders, cache_size_bytes)
+    #[allow(dead_code)]
+    pub fn get_shader_cache_stats(&self) -> (usize, usize) {
+        self.shader_compiler.get_cache_stats()
     }
 }
 

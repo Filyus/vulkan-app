@@ -151,6 +151,32 @@ pub mod ecs {
 pub mod shader {
     /// Shader entry point name
     pub const ENTRY_POINT: &[u8] = b"main\0";
+    
+    /// Enable runtime shader compilation
+    #[allow(dead_code)]
+    pub const ENABLE_RUNTIME_COMPILATION: bool = true;
+    
+    /// Enable shader caching
+    pub const ENABLE_SHADER_CACHE: bool = true;
+    
+    /// Enable debug information in compiled shaders
+    pub const ENABLE_SHADER_DEBUG: bool = cfg!(debug_assertions);
+    
+    /// Shader optimization level
+    pub const OPTIMIZATION_LEVEL: shaderc::OptimizationLevel = if cfg!(debug_assertions) {
+        shaderc::OptimizationLevel::Zero
+    } else {
+        shaderc::OptimizationLevel::Performance
+    };
+    
+    /// Shader file paths
+    pub const SDF_VERTEX_SHADER: &str = "shaders/sdf.vert";
+    pub const SDF_FRAGMENT_SHADER: &str = "shaders/sdf.frag";
+    pub const IMGUI_VERTEX_SHADER: &str = "shaders/imgui.vert";
+    pub const IMGUI_FRAGMENT_SHADER: &str = "shaders/imgui.frag";
+    
+    /// Preload commonly used shaders on startup
+    pub const PRELOAD_SHADERS: bool = true;
 }
 
 /// Memory configuration
@@ -218,6 +244,13 @@ mod tests {
     #[test]
     fn test_shader_config_constants() {
         assert_eq!(shader::ENTRY_POINT, b"main\0");
+        assert!(shader::ENABLE_RUNTIME_COMPILATION);
+        assert!(shader::ENABLE_SHADER_CACHE);
+        assert_eq!(shader::SDF_VERTEX_SHADER, "shaders/sdf.vert");
+        assert_eq!(shader::SDF_FRAGMENT_SHADER, "shaders/sdf.frag");
+        assert_eq!(shader::IMGUI_VERTEX_SHADER, "shaders/imgui.vert");
+        assert_eq!(shader::IMGUI_FRAGMENT_SHADER, "shaders/imgui.frag");
+        assert!(shader::PRELOAD_SHADERS);
     }
 
     #[test]

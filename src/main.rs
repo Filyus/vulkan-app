@@ -26,6 +26,7 @@ struct AppState {
     original_window_size: winit::dpi::PhysicalSize<u32>,
     original_window_position: winit::dpi::PhysicalPosition<i32>,
     original_decorations: bool,
+    is_shutting_down: bool,
 }
 
 impl AppState {
@@ -313,15 +314,23 @@ impl ApplicationHandler for AppState {
         
         match event {
             WindowEvent::CloseRequested => {
-                info!("Window close requested, cleaning up before exit");
-                 
-                // Clean up HUD before Vulkan renderer to ensure proper resource cleanup order
+                info!("Window close requested, initiating graceful shutdown");
+                
+                // Set shutdown flag to stop rendering
+                self.is_shutting_down = true;
+                
+                // Wait for current frame to complete before cleanup
                 if let Some(ref mut ecs_world) = self.ecs_world {
-                    info!("Cleaning up HUD system before Vulkan device destruction");
+                    info!("Waiting for current frame to complete before cleanup");
+                    if let Err(e) = ecs_world.wait_for_gpu_idle() {
+                        error!("Failed to wait for GPU idle during shutdown: {}", e);
+                    }
+                    
+                    info!("GPU idle confirmed, cleaning up HUD system");
                     ecs_world.cleanup_hud();
                 }
-                 
-                info!("Cleanup completed, exiting");
+                  
+                info!("Graceful shutdown completed, exiting");
                 event_loop.exit();
             }
             WindowEvent::KeyboardInput {
@@ -404,6 +413,11 @@ impl ApplicationHandler for AppState {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Skip rendering during shutdown
+                if self.is_shutting_down {
+                    return;
+                }
+                
                 if let Some(ref mut ecs_world) = self.ecs_world {
                     // Draw the main 3D scene first
                     if let Err(e) = ecs_world.draw_frame() {
@@ -416,6 +430,11 @@ impl ApplicationHandler for AppState {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Skip ECS updates and rendering during shutdown
+        if self.is_shutting_down {
+            return;
+        }
+        
         // Handle fullscreen toggle flag if set
         if self.toggle_fullscreen_flag {
             self.toggle_fullscreen_flag = false;
@@ -451,6 +470,7 @@ fn main() -> Result<()> {
         original_window_size: winit::dpi::PhysicalSize::new(800, 600),
         original_window_position: winit::dpi::PhysicalPosition::new(100, 100),
         original_decorations: true,
+        is_shutting_down: false,
     };
     
     let _ = event_loop.run_app(&mut app);
